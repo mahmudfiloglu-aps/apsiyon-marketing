@@ -9,6 +9,7 @@ interface Props {
 }
 
 export default function EmailComposer({ leads, decisions }: Props) {
+  const [open, setOpen] = useState(false)
   const [recipientName, setRecipientName] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -61,42 +62,88 @@ Saygılarımla`
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (decidedCount === 0) return null
-
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mt-6">
-      <h2 className="text-lg font-semibold text-gray-800 mb-1">📧 Mail Oluştur</h2>
-      <p className="text-sm text-gray-500 mb-5">
-        {confirmedLeads.length} lead CRM'de güncelleme gerektirecek.
-      </p>
-
-      <div className="mb-4">
-        <label className="text-sm font-medium text-gray-700 block mb-1.5">
-          Alıcı Adı
-        </label>
-        <input
-          type="text"
-          value={recipientName}
-          onChange={(e) => setRecipientName(e.target.value)}
-          placeholder="Örn: Ahmet Bey"
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      <div className="bg-gray-50 rounded-xl p-4 font-mono text-xs text-gray-700 whitespace-pre-wrap max-h-96 overflow-auto mb-4 border border-gray-200 leading-relaxed">
-        {emailBody}
-      </div>
-
+    <>
+      {/* Sabit buton — sağ alt */}
       <button
-        onClick={handleCopy}
-        className={`px-5 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
-          copied
-            ? 'bg-green-500 text-white'
-            : 'bg-blue-600 text-white hover:bg-blue-700'
-        }`}
+        onClick={() => setOpen(true)}
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-blue-600 text-white px-4 py-3 rounded-2xl shadow-lg hover:bg-blue-700 transition-colors text-sm font-medium"
       >
-        {copied ? '✓ Kopyalandı!' : '📋 Panoya Kopyala'}
+        📧 Mail Oluştur
+        {confirmedLeads.length > 0 && (
+          <span className="bg-white text-blue-600 text-xs font-bold px-1.5 py-0.5 rounded-full">
+            {confirmedLeads.length}
+          </span>
+        )}
       </button>
-    </div>
+
+      {/* Modal */}
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">📧 Mail Oluştur</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {decidedCount === 0
+                    ? 'Kartlardaki "✓ AI Doğru" butonuna basarak lead\'leri onaylayın'
+                    : `${confirmedLeads.length} lead güncellenecek · ${leads.length - decidedCount} kart henüz değerlendirilmedi`}
+                </p>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-6 py-4 flex-1 overflow-auto">
+              {decidedCount === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <div className="text-4xl mb-3">👆</div>
+                  <p className="text-sm">Sonuç kartlarında <strong>"✓ AI Doğru"</strong> butonuna basarak<br />CRM'de güncellenecek lead'leri işaretleyin.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                      Alıcı Adı
+                    </label>
+                    <input
+                      type="text"
+                      value={recipientName}
+                      onChange={(e) => setRecipientName(e.target.value)}
+                      placeholder="Örn: Ahmet Bey"
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="bg-gray-50 rounded-xl p-4 font-mono text-xs text-gray-700 whitespace-pre-wrap max-h-72 overflow-auto border border-gray-200 leading-relaxed">
+                    {emailBody}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {decidedCount > 0 && (
+              <div className="px-6 py-4 border-t border-gray-100">
+                <button
+                  onClick={handleCopy}
+                  className={`w-full py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                    copied
+                      ? 'bg-green-500 text-white'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {copied ? '✓ Kopyalandı!' : '📋 Panoya Kopyala'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
