@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import LeadCard from '@/components/LeadCard'
 import EmailComposer from '@/components/EmailComposer'
 import ExportButton from '@/components/ExportButton'
@@ -11,6 +11,7 @@ const ACTIONABLE = ['Yeniden Değerlendir', 'Yanlış Kayıt', 'Belirsiz'] as co
 
 export default function ResultsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [leads, setLeads] = useState<AnalyzedLead[]>([])
   const [decisions, setDecisions] = useState<Record<string, 'confirmed' | 'rejected'>>({})
   const [filter, setFilter] = useState('Tümü')
@@ -20,18 +21,40 @@ export default function ResultsPage() {
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [analysisError, setAnalysisError] = useState('')
   const abortRef = useRef<AbortController | null>(null)
-  const recordIdRef = useRef<string | null>(null)
+  const pendingMeta = useRef<{ id: string; fileName: string; filteredCount: number; totalCount: number } | null>(null)
 
   useEffect(() => {
+    const historyId = searchParams.get('id')
+
+    // Geçmişten yükleme
+    if (historyId) {
+      fetch(`/api/analyses/${historyId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.analysis?.results) {
+            setLeads(data.analysis.results as AnalyzedLead[])
+          } else {
+            router.replace('/')
+          }
+          setLoading(false)
+        })
+        .catch(() => { router.replace('/'); })
+      return
+    }
+
+    // Yeni analiz
     const pending = sessionStorage.getItem('pendingAnalysis')
     if (pending) {
       sessionStorage.removeItem('pendingAnalysis')
-      const { leads: rawLeads, services, recordId } = JSON.parse(pending) as {
+      const { leads: rawLeads, services, recordId, fileName, filteredCount, totalCount } = JSON.parse(pending) as {
         leads: LeadRow[]
         services: string[]
-        recordId?: string
+        recordId: string
+        fileName: string
+        filteredCount: number
+        totalCount: number
       }
-      recordIdRef.current = recordId ?? null
+      pendingMeta.current = { id: recordId, fileName, filteredCount, totalCount }
       setLeads(rawLeads.map((lead) => ({ lead })))
       setProgress({ done: 0, total: rawLeads.length })
       setLoading(false)
@@ -40,26 +63,7 @@ export default function ResultsPage() {
       return
     }
 
-    // Geçmişten yükle
-    const raw = sessionStorage.getItem('analysisData')
-    if (!raw) { router.replace('/'); return }
-
-    const data = JSON.parse(raw)
-    if (Array.isArray(data)) {
-      setLeads(data as AnalyzedLead[])
-    } else {
-      const { leads: rawLeads, results } = data as {
-        leads: LeadRow[]
-        results: Record<string, AnalysisResult | { error: string }>
-      }
-      setLeads(rawLeads.map((lead) => {
-        const result = results[lead['ID']]
-        if (!result) return { lead }
-        if ('error' in result) return { lead, analysisError: result.error }
-        return { lead, analysisResult: result as AnalysisResult }
-      }))
-    }
-    setLoading(false)
+    router.replace('/')
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -67,6 +71,7 @@ export default function ResultsPage() {
     const CHUNK_SIZE = 20
     const abort = new AbortController()
     abortRef.current = abort
+    const accumulated: AnalyzedLead[] = rawLeads.map((lead) => ({ lead }))
 
     try {
       for (let i = 0; i < rawLeads.length; i += CHUNK_SIZE) {
@@ -100,17 +105,16 @@ export default function ResultsPage() {
             if (!line.trim()) continue
             try {
               const { id, result, error } = JSON.parse(line) as {
-                id: string
-                result?: AnalysisResult
-                error?: string
+                id: string; result?: AnalysisResult; error?: string
               }
-              setLeads((prev) =>
-                prev.map((item) =>
-                  item.lead['ID'] === id
-                    ? { ...item, ...(result ? { analysisResult: result } : { analysisError: error }) }
-                    : item
-                )
-              )
+              const idx = accumulated.findIndex((l) => l.lead['ID'] === id)
+              if (idx !== -1) {
+                accumulated[idx] = {
+                  ...accumulated[idx],
+                  ...(result ? { analysisResult: result } : { analysisError: error }),
+                }
+              }
+              setLeads([...accumulated])
               setProgress((p) => ({ ...p, done: p.done + 1 }))
             } catch {}
           }
@@ -122,21 +126,25 @@ export default function ResultsPage() {
       }
     } finally {
       setAnalyzing(false)
+      // DB'ye kaydet
+      const meta = pendingMeta.current
+      if (meta && accumulated.some((l) => l.analysisResult)) {
+        fetch('/api/analyses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: meta.id,
+            fileName: meta.fileName,
+            filteredCount: meta.filteredCount,
+            totalCount: meta.totalCount,
+            results: accumulated,
+          }),
+        }).then(() => {
+          window.dispatchEvent(new Event('analysisHistoryUpdated'))
+        }).catch(() => {})
+      }
     }
   }
-
-  // Analiz bitince localStorage'a kaydet
-  useEffect(() => {
-    if (!analyzing && leads.length > 0 && leads.some(l => l.analysisResult)) {
-      const id = recordIdRef.current
-      if (id) {
-        try {
-          localStorage.setItem(`analysisData_${id}`, JSON.stringify(leads))
-        } catch {}
-      }
-      sessionStorage.setItem('analysisData', JSON.stringify(leads))
-    }
-  }, [analyzing, leads])
 
   const handleDecision = (leadId: string, decision: 'confirmed' | 'rejected') => {
     setDecisions((prev) => {
@@ -176,7 +184,6 @@ export default function ResultsPage() {
 
   return (
     <div className="py-8 px-6 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Analiz Sonuçları</h1>
@@ -225,7 +232,6 @@ export default function ResultsPage() {
         </div>
       )}
 
-      {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
           <div className="text-2xl font-bold text-green-700">{counts['Yeniden Değerlendir']}</div>
@@ -250,7 +256,6 @@ export default function ResultsPage() {
         </button>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-6">
         {(['Tümü', ...ACTIONABLE, ...(showCheckPass ? ['Check Pass'] : [])] as string[]).map((opt) => (
           <button
@@ -267,7 +272,6 @@ export default function ResultsPage() {
         ))}
       </div>
 
-      {/* Lead cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((item, i) => (
           <LeadCard

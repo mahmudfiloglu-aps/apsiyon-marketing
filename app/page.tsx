@@ -45,7 +45,14 @@ export default function HomePage() {
     localStorage.setItem('fileHistory', JSON.stringify([record, ...existing].slice(0, 20)))
     window.dispatchEvent(new Event('fileHistoryUpdated'))
 
-    sessionStorage.setItem('pendingAnalysis', JSON.stringify({ leads, services, recordId: record.id }))
+    sessionStorage.setItem('pendingAnalysis', JSON.stringify({
+      leads,
+      services,
+      recordId: record.id,
+      fileName,
+      filteredCount: leads.length,
+      totalCount,
+    }))
     router.push('/results')
   }
 

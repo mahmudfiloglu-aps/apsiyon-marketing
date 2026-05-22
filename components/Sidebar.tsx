@@ -1,48 +1,51 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
-export interface FileRecord {
+interface AnalysisRecord {
   id: string
-  name: string
-  date: string
-  filteredCount: number
-  totalCount: number
+  file_name: string
+  filtered_count: number
+  total_count: number
+  created_at: string
 }
 
 export default function Sidebar() {
   const { user, logout } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
-  const [history, setHistory] = useState<FileRecord[]>([])
+  const [history, setHistory] = useState<AnalysisRecord[]>([])
 
-  const loadHistory = () => {
-    const raw = localStorage.getItem('fileHistory')
-    if (raw) setHistory(JSON.parse(raw))
-  }
-
-  useEffect(() => {
-    loadHistory()
-    window.addEventListener('fileHistoryUpdated', loadHistory)
-    return () => window.removeEventListener('fileHistoryUpdated', loadHistory)
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/analyses')
+      if (res.ok) {
+        const data = await res.json()
+        setHistory(data.analyses ?? [])
+      }
+    } catch {}
   }, [])
 
-  const openRecord = (record: FileRecord) => {
-    const data = localStorage.getItem(`analysisData_${record.id}`)
-    if (!data) return
-    sessionStorage.setItem('analysisData', data)
-    router.push('/results')
+  useEffect(() => {
+    if (user) loadHistory()
+  }, [user, loadHistory])
+
+  useEffect(() => {
+    window.addEventListener('analysisHistoryUpdated', loadHistory)
+    return () => window.removeEventListener('analysisHistoryUpdated', loadHistory)
+  }, [loadHistory])
+
+  const openRecord = (id: string) => {
+    router.push(`/results?id=${id}`)
   }
 
-  const deleteRecord = (e: React.MouseEvent, id: string) => {
+  const deleteRecord = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
-    const updated = history.filter((r) => r.id !== id)
-    localStorage.setItem('fileHistory', JSON.stringify(updated))
-    localStorage.removeItem(`analysisData_${id}`)
-    setHistory(updated)
+    await fetch(`/api/analyses/${id}`, { method: 'DELETE' })
+    setHistory((prev) => prev.filter((r) => r.id !== id))
   }
 
   return (
@@ -74,37 +77,28 @@ export default function Sidebar() {
         {history.length === 0 && (
           <p className="text-xs text-gray-400 px-2">Henüz analiz yok</p>
         )}
-        {history.map((record) => {
-          const hasSavedData = typeof window !== 'undefined'
-            && !!localStorage.getItem(`analysisData_${record.id}`)
-          return (
-            <div
-              key={record.id}
-              onClick={() => hasSavedData && openRecord(record)}
-              className={`group flex items-start justify-between px-3 py-2.5 rounded-lg mb-1 border border-transparent transition-colors ${
-                hasSavedData
-                  ? 'hover:bg-gray-50 hover:border-gray-100 cursor-pointer'
-                  : 'opacity-50 cursor-default'
-              }`}
-            >
-              <div className="min-w-0">
-                <p className="text-sm text-gray-700 truncate font-medium">
-                  {record.name}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {record.filteredCount} lead · {record.date}
-                </p>
-              </div>
-              <button
-                onClick={(e) => deleteRecord(e, record.id)}
-                className="ml-2 shrink-0 text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs pt-0.5"
-                title="Sil"
-              >
-                ✕
-              </button>
+        {history.map((record) => (
+          <div
+            key={record.id}
+            onClick={() => openRecord(record.id)}
+            className="group flex items-start justify-between px-3 py-2.5 rounded-lg mb-1 border border-transparent hover:bg-gray-50 hover:border-gray-100 cursor-pointer transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm text-gray-700 truncate font-medium">{record.file_name}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {record.filtered_count} lead ·{' '}
+                {new Date(record.created_at).toLocaleDateString('tr-TR')}
+              </p>
             </div>
-          )
-        })}
+            <button
+              onClick={(e) => deleteRecord(e, record.id)}
+              className="ml-2 shrink-0 text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs pt-0.5"
+              title="Sil"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
       </div>
 
       <div className="border-t border-gray-100 px-4 py-3">
