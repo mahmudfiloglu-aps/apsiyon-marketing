@@ -1,9 +1,17 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { VertexAI } from '@google-cloud/vertexai'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
 function getClient() {
-  return new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+  const credentials = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+    ? JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON)
+    : undefined
+
+  return new VertexAI({
+    project: process.env.VERTEX_PROJECT_ID!,
+    location: process.env.VERTEX_LOCATION || 'us-central1',
+    googleAuthOptions: credentials ? { credentials } : undefined,
+  })
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -19,7 +27,7 @@ async function analyzeLead(
     try {
       const model = getClient().getGenerativeModel({ model: 'gemini-2.5-flash' })
       const result = await model.generateContent(prompt)
-      const text = result.response.text()
+      const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || ''
 
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {

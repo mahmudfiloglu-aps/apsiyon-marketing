@@ -8,7 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google-cloud/vertexai": "^1.12.0",
     "@types/file-saver": "^2.0.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
