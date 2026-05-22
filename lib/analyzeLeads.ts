@@ -1,4 +1,4 @@
-import { VertexAI } from '@google-cloud/vertexai'
+import { GoogleGenAI } from '@google/genai'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
@@ -7,7 +7,6 @@ function getClient() {
   const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
   if (!project) throw new Error('GOOGLE_CLOUD_PROJECT not configured')
 
-  // GOOGLE_APPLICATION_CREDENTIALS: Vercel'de JSON içeriği olarak verilmeli
   const credEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS
   let googleAuthOptions: Record<string, unknown> | undefined
 
@@ -19,7 +18,8 @@ function getClient() {
     }
   }
 
-  return new VertexAI({
+  return new GoogleGenAI({
+    vertexai: true,
     project,
     location,
     ...(googleAuthOptions ? { googleAuthOptions } : {}),
@@ -38,9 +38,11 @@ async function analyzeLead(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const model = getClient().getGenerativeModel({ model: modelName })
-      const result = await model.generateContent(prompt)
-      const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const response = await getClient().models.generateContent({
+        model: modelName,
+        contents: prompt,
+      })
+      const text = response.text ?? ''
 
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
