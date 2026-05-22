@@ -6,6 +6,7 @@ import type { AnalyzedLead } from '@/types/lead'
 const STATUS_ICONS: Record<string, string> = {
   'Yeniden Değerlendir': '🟢',
   'Yanlış Kayıt': '🗑️',
+  'Yetersiz Not': '📝',
   Belirsiz: '🟡',
   'Check Pass': '✅',
 }
@@ -79,7 +80,7 @@ export default function ResultsTable({ leads }: ResultsTableProps) {
           placeholder="İsim, firma, temsilci ara..."
           className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {['Tümü', 'Yeniden Değerlendir', 'Yanlış Kayıt', 'Belirsiz', 'Check Pass'].map(
+        {['Tümü', 'Yeniden Değerlendir', 'Yanlış Kayıt', 'Yetersiz Not', 'Belirsiz', 'Check Pass'].map(
           (opt) => (
             <button
               key={opt}

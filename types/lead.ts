@@ -19,7 +19,7 @@ export type AnalysisResult = {
   leadId: string
   originalStatus: 'Uygun Bulunmadı'
   originalDetail: string
-  suggestedStatus: 'Yeniden Değerlendir' | 'Yanlış Kayıt' | 'Belirsiz' | 'Check Pass'
+  suggestedStatus: 'Yeniden Değerlendir' | 'Yanlış Kayıt' | 'Yetersiz Not' | 'Belirsiz' | 'Check Pass'
   confidence: 'Yüksek' | 'Orta' | 'Düşük'
   reason: string
   matchedServices: string[]

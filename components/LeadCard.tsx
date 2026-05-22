@@ -5,6 +5,7 @@ import type { AnalyzedLead } from '@/types/lead'
 const STATUS_BG: Record<string, string> = {
   'Yeniden Değerlendir': 'bg-green-50 border-green-200',
   'Yanlış Kayıt': 'bg-orange-50 border-orange-200',
+  'Yetersiz Not': 'bg-purple-50 border-purple-200',
   Belirsiz: 'bg-yellow-50 border-yellow-200',
   'Check Pass': 'bg-gray-50 border-gray-200',
 }
@@ -12,6 +13,7 @@ const STATUS_BG: Record<string, string> = {
 const STATUS_ICON: Record<string, string> = {
   'Yeniden Değerlendir': '🟢',
   'Yanlış Kayıt': '🗑️',
+  'Yetersiz Not': '📝',
   Belirsiz: '🟡',
   'Check Pass': '✅',
 }

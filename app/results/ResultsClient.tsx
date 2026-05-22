@@ -7,7 +7,7 @@ import EmailComposer from '@/components/EmailComposer'
 import ExportButton from '@/components/ExportButton'
 import type { AnalyzedLead, AnalysisResult, LeadRow } from '@/types/lead'
 
-const ACTIONABLE = ['Yeniden Değerlendir', 'Yanlış Kayıt', 'Belirsiz'] as const
+const ACTIONABLE = ['Yeniden Değerlendir', 'Yanlış Kayıt', 'Yetersiz Not', 'Belirsiz'] as const
 
 export default function ResultsClient() {
   const router = useRouter()
@@ -165,6 +165,7 @@ export default function ResultsClient() {
   const counts = {
     'Yeniden Değerlendir': leads.filter((l) => l.analysisResult?.suggestedStatus === 'Yeniden Değerlendir').length,
     'Yanlış Kayıt': leads.filter((l) => l.analysisResult?.suggestedStatus === 'Yanlış Kayıt').length,
+    'Yetersiz Not': leads.filter((l) => l.analysisResult?.suggestedStatus === 'Yetersiz Not').length,
     Belirsiz: leads.filter((l) => l.analysisResult?.suggestedStatus === 'Belirsiz').length,
   }
 
@@ -232,18 +233,22 @@ export default function ResultsClient() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-5 gap-3 mb-6">
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
           <div className="text-2xl font-bold text-green-700">{counts['Yeniden Değerlendir']}</div>
-          <div className="text-sm text-green-600">🟢 Yeniden Değerlendir</div>
+          <div className="text-xs text-green-600 mt-1">🟢 Yeniden Değerlendir</div>
         </div>
         <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-center">
           <div className="text-2xl font-bold text-orange-700">{counts['Yanlış Kayıt']}</div>
-          <div className="text-sm text-orange-600">🗑️ Yanlış Kayıt</div>
+          <div className="text-xs text-orange-600 mt-1">🗑️ Yanlış Kayıt</div>
+        </div>
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-purple-700">{counts['Yetersiz Not']}</div>
+          <div className="text-xs text-purple-600 mt-1">📝 Yetersiz Not</div>
         </div>
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
           <div className="text-2xl font-bold text-yellow-700">{counts['Belirsiz']}</div>
-          <div className="text-sm text-yellow-600">🟡 Belirsiz</div>
+          <div className="text-xs text-yellow-600 mt-1">🟡 Belirsiz</div>
         </div>
         <button
           onClick={() => setShowCheckPass((v) => !v)}
@@ -252,7 +257,7 @@ export default function ResultsClient() {
           }`}
         >
           <div className="text-2xl font-bold text-gray-500">{checkPassLeads.length}</div>
-          <div className="text-sm text-gray-500">✅ Check Pass {showCheckPass ? '(gizle)' : '(göster)'}</div>
+          <div className="text-xs text-gray-500 mt-1">✅ Check Pass {showCheckPass ? '(gizle)' : '(göster)'}</div>
         </button>
       </div>
 
