@@ -73,7 +73,7 @@ export async function analyzeLeadsBatch(
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<string, AnalysisResult | Error>> {
   const results = new Map<string, AnalysisResult | Error>()
-  const BATCH_SIZE = 3
+  const BATCH_SIZE = 5
 
   for (let i = 0; i < leads.length; i += BATCH_SIZE) {
     const batch = leads.slice(i, i + BATCH_SIZE)
@@ -92,10 +92,6 @@ export async function analyzeLeadsBatch(
 
     onProgress?.(Math.min(i + BATCH_SIZE, leads.length), leads.length)
 
-    // Gemini free tier: dakikada 15 istek — batch arası bekleme
-    if (i + BATCH_SIZE < leads.length) {
-      await sleep(2000)
-    }
   }
 
   return results
