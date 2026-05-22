@@ -21,7 +21,7 @@ async function analyzeLead(
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const response = await getClient().chat.completions.create({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-1.5-flash-latest',
         max_tokens: 256,
         messages: [{ role: 'user', content: prompt }],
       })
