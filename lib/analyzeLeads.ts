@@ -1,12 +1,9 @@
-import OpenAI from 'openai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
 function getClient() {
-  return new OpenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-  })
+  return new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -20,13 +17,10 @@ async function analyzeLead(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const response = await getClient().chat.completions.create({
-        model: 'gemini-1.5-flash-latest',
-        max_tokens: 256,
-        messages: [{ role: 'user', content: prompt }],
-      })
+      const model = getClient().getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const result = await model.generateContent(prompt)
+      const text = result.response.text()
 
-      const text = response.choices[0]?.message?.content || ''
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
         if (text.toLowerCase().includes('error') || text.toLowerCase().includes('rate')) {
@@ -91,7 +85,6 @@ export async function analyzeLeadsBatch(
     })
 
     onProgress?.(Math.min(i + BATCH_SIZE, leads.length), leads.length)
-
   }
 
   return results
