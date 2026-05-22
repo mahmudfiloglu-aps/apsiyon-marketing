@@ -23,17 +23,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Hizmet listesi boş' }, { status: 400 })
     }
 
-    const resultsMap = await analyzeLeadsBatch(leads, services)
+    console.log(`[analyze] ${leads.length} lead işleniyor...`)
+    const t0 = Date.now()
+
+    const resultsMap = await analyzeLeadsBatch(leads, services, (done, total) => {
+      console.log(`[analyze] ilerleme: ${done}/${total}`)
+    })
 
     const results: Record<string, AnalysisResult | { error: string }> = {}
+    let successCount = 0
+    let errorCount = 0
     resultsMap.forEach((value, key) => {
       if (value instanceof Error) {
         results[key] = { error: value.message }
+        console.error(`[analyze] hata - lead ${key}:`, value.message)
+        errorCount++
       } else {
         results[key] = value
+        successCount++
       }
     })
 
+    console.log(`[analyze] tamamlandı: ${successCount} başarılı, ${errorCount} hatalı, ${Date.now() - t0}ms`)
     return NextResponse.json({ results })
   } catch (err) {
     console.error('Analyze route error:', err)
