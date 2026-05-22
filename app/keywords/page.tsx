@@ -10,8 +10,22 @@ interface TermResult {
   category: Category
 }
 
+function readWorkbook(buffer: ArrayBuffer) {
+  // Try UTF-8 first (with BOM strip), fall back to Windows-1252 for Turkish chars
+  const u8 = new Uint8Array(buffer)
+  const hasUtf8Bom = u8[0] === 0xef && u8[1] === 0xbb && u8[2] === 0xbf
+  try {
+    const text = new TextDecoder(hasUtf8Bom ? 'utf-8' : 'utf-8', { fatal: true }).decode(buffer)
+    return XLSX.read(text, { type: 'string' })
+  } catch {
+    // If UTF-8 fails, try Windows-1252 (common Google Ads export encoding)
+    const text = new TextDecoder('windows-1252').decode(buffer)
+    return XLSX.read(text, { type: 'string' })
+  }
+}
+
 function parseSearchTerms(buffer: ArrayBuffer): string[] {
-  const wb = XLSX.read(buffer, { type: 'array' })
+  const wb = readWorkbook(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
   // Get raw arrays to handle Google Ads format (2 metadata rows before headers)
   const rawRows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' })
@@ -40,9 +54,12 @@ function parseSearchTerms(buffer: ArrayBuffer): string[] {
       const term = String(row[termColIdx] ?? '').trim()
       if (!term || term.length <= 1) return false
       // Skip summary rows
-      if (/^toplam[:\s]/i.test(term)) return false
+      if (/^toplam[:\s]/i.test(term) || term.toLowerCase().startsWith('toplam')) return false
       // Skip already-excluded terms
-      if (addedColIdx !== -1 && /hariç/i.test(String(row[addedColIdx] ?? ''))) return false
+      if (addedColIdx !== -1) {
+        const addedVal = String(row[addedColIdx] ?? '').toLowerCase()
+        if (addedVal.includes('hariç') || addedVal.includes('excluded')) return false
+      }
       return true
     })
     .map((row) => String(row[termColIdx]).trim())
