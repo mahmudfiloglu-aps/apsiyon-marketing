@@ -5,6 +5,13 @@ import type { LeadRow, AnalysisResult } from '@/types/lead'
 export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
+  console.log('[analyze] env check:', {
+    GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
+    GOOGLE_CLOUD_LOCATION: process.env.GOOGLE_CLOUD_LOCATION,
+    GEMINI_CLASSIFICATION_MODEL: process.env.GEMINI_CLASSIFICATION_MODEL,
+    HAS_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  })
+
   try {
     const body = await req.json()
     const { leads, services }: { leads: LeadRow[]; services: string[] } = body

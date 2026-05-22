@@ -1,5 +1,4 @@
 import { VertexAI } from '@google-cloud/vertexai'
-import * as fs from 'fs'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
@@ -8,17 +7,15 @@ function getClient() {
   const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
   if (!project) throw new Error('GOOGLE_CLOUD_PROJECT not configured')
 
-  // GOOGLE_APPLICATION_CREDENTIALS: dosya yolu veya JSON içeriği olabilir
+  // GOOGLE_APPLICATION_CREDENTIALS: Vercel'de JSON içeriği olarak verilmeli
   const credEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS
   let googleAuthOptions: Record<string, unknown> | undefined
 
-  if (credEnv) {
-    if (credEnv.trim().startsWith('{')) {
-      // JSON içeriği doğrudan verilmiş
+  if (credEnv?.trim().startsWith('{')) {
+    try {
       googleAuthOptions = { credentials: JSON.parse(credEnv) }
-    } else if (fs.existsSync(credEnv)) {
-      // Dosya yolu verilmiş
-      googleAuthOptions = { credentials: JSON.parse(fs.readFileSync(credEnv, 'utf-8')) }
+    } catch {
+      throw new Error('GOOGLE_APPLICATION_CREDENTIALS geçerli JSON değil')
     }
   }
 
