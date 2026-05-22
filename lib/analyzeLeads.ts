@@ -28,7 +28,7 @@ function getClient() {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function analyzeLead(
+export async function analyzeLead(
   lead: LeadRow,
   services: string[],
   retries = 3
@@ -52,12 +52,7 @@ async function analyzeLead(
         throw new Error('AI yanıtı JSON içermiyor: ' + text.slice(0, 80))
       }
 
-      let parsed: Record<string, unknown>
-      try {
-        parsed = JSON.parse(jsonMatch[0])
-      } catch {
-        throw new Error('JSON parse hatası: ' + jsonMatch[0].slice(0, 80))
-      }
+      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>
 
       return {
         leadId: lead['ID'],
@@ -82,34 +77,4 @@ async function analyzeLead(
   }
 
   throw new Error('Maksimum deneme sayısına ulaşıldı')
-}
-
-export async function analyzeLeadsBatch(
-  leads: LeadRow[],
-  services: string[],
-  onProgress?: (done: number, total: number) => void
-): Promise<Map<string, AnalysisResult | Error>> {
-  const results = new Map<string, AnalysisResult | Error>()
-  const BATCH_SIZE = 3
-
-  for (let i = 0; i < leads.length; i += BATCH_SIZE) {
-    const batch = leads.slice(i, i + BATCH_SIZE)
-    const batchResults = await Promise.allSettled(
-      batch.map((lead) => analyzeLead(lead, services))
-    )
-
-    batchResults.forEach((result, idx) => {
-      const lead = batch[idx]
-      if (result.status === 'fulfilled') {
-        results.set(lead['ID'], result.value)
-      } else {
-        results.set(lead['ID'], new Error(result.reason?.message || 'Bilinmeyen hata'))
-      }
-    })
-
-    onProgress?.(Math.min(i + BATCH_SIZE, leads.length), leads.length)
-    if (i + BATCH_SIZE < leads.length) await sleep(500)
-  }
-
-  return results
 }

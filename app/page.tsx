@@ -21,71 +21,32 @@ export default function HomePage() {
   const [fileName, setFileName] = useState('')
   const [totalCount, setTotalCount] = useState(0)
   const [services, setServices] = useState<string[]>(DEFAULT_SERVICES)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState('')
 
-  const handleLeadsLoaded = (
-    filteredLeads: LeadRow[],
-    total: number,
-    name: string
-  ) => {
+  const handleLeadsLoaded = (filteredLeads: LeadRow[], total: number, name: string) => {
     setLeads(filteredLeads)
     setTotalCount(total)
     setFileName(name)
     setError('')
   }
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = () => {
     if (!leads.length) { setError('Önce bir dosya yükleyin.'); return }
     if (!services.length) { setError('En az bir hizmet tanımlayın.'); return }
 
-    setIsAnalyzing(true)
-    setError('')
-    setProgress({ done: 0, total: leads.length })
-
-    try {
-      const CHUNK_SIZE = 10
-      const allResults: Record<string, unknown> = {}
-
-      for (let i = 0; i < leads.length; i += CHUNK_SIZE) {
-        const chunk = leads.slice(i, i + CHUNK_SIZE)
-        const res = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ leads: chunk, services }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'API hatası')
-        Object.assign(allResults, data.results)
-        setProgress({ done: Math.min(i + CHUNK_SIZE, leads.length), total: leads.length })
-      }
-
-      // Save to file history
-      const record = {
-        id: Date.now().toString(),
-        name: fileName,
-        date: new Date().toLocaleDateString('tr-TR'),
-        filteredCount: leads.length,
-        totalCount,
-      }
-      const existing = JSON.parse(localStorage.getItem('fileHistory') || '[]')
-      localStorage.setItem(
-        'fileHistory',
-        JSON.stringify([record, ...existing].slice(0, 20))
-      )
-      window.dispatchEvent(new Event('fileHistoryUpdated'))
-
-      sessionStorage.setItem(
-        'analysisData',
-        JSON.stringify({ leads, results: allResults })
-      )
-      router.push('/results')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analiz sırasında hata oluştu.')
-    } finally {
-      setIsAnalyzing(false)
+    const record = {
+      id: Date.now().toString(),
+      name: fileName,
+      date: new Date().toLocaleDateString('tr-TR'),
+      filteredCount: leads.length,
+      totalCount,
     }
+    const existing = JSON.parse(localStorage.getItem('fileHistory') || '[]')
+    localStorage.setItem('fileHistory', JSON.stringify([record, ...existing].slice(0, 20)))
+    window.dispatchEvent(new Event('fileHistoryUpdated'))
+
+    sessionStorage.setItem('pendingAnalysis', JSON.stringify({ leads, services }))
+    router.push('/results')
   }
 
   return (
@@ -111,9 +72,7 @@ export default function HomePage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold mb-1 text-gray-800">
-            2. Hizmetleri Tanımla
-          </h2>
+          <h2 className="text-lg font-semibold mb-1 text-gray-800">2. Hizmetleri Tanımla</h2>
           <ServiceConfig onChange={setServices} />
         </div>
 
@@ -126,42 +85,13 @@ export default function HomePage() {
             </div>
           )}
 
-          {isAnalyzing && (
-            <div className="mb-4">
-              <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>Analiz ediliyor...</span>
-                <span>{progress.done} / {progress.total}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: progress.total
-                      ? `${(progress.done / progress.total) * 100}%`
-                      : '0%',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
           <button
             onClick={handleAnalyze}
-            disabled={isAnalyzing || leads.length === 0}
+            disabled={leads.length === 0}
             className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold text-lg hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {isAnalyzing
-              ? `Analiz ediliyor... (${progress.done}/${progress.total})`
-              : leads.length > 0
-                ? `${leads.length} Lead'i Analiz Et`
-                : "Lead'leri Analiz Et"}
+            {leads.length > 0 ? `${leads.length} Lead'i Analiz Et` : "Lead'leri Analiz Et"}
           </button>
-
-          {leads.length > 0 && (
-            <p className="text-xs text-gray-400 mt-2 text-center">
-              Tahmini süre: ~{Math.ceil(leads.length / 10)} dakika
-            </p>
-          )}
         </div>
       </div>
     </div>
