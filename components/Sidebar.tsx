@@ -57,7 +57,7 @@ export default function Sidebar() {
         <p className="text-xs text-gray-400 mt-0.5">Apsiyon</p>
       </div>
 
-      <nav className="px-3 pt-3">
+      <nav className="px-3 pt-3 space-y-1">
         <Link
           href="/"
           className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -67,6 +67,16 @@ export default function Sidebar() {
           }`}
         >
           + Yeni Analiz
+        </Link>
+        <Link
+          href="/keywords"
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            pathname === '/keywords'
+              ? 'bg-blue-50 text-blue-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          🔑 Negatif Kelimeler
         </Link>
       </nav>
 
