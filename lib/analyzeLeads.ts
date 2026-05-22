@@ -17,7 +17,7 @@ async function analyzeLead(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const model = getClient().getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const model = getClient().getGenerativeModel({ model: 'gemini-2.5-flash' })
       const result = await model.generateContent(prompt)
       const text = result.response.text()
 
