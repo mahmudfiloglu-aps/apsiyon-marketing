@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 
 export interface FileRecord {
   id: string
@@ -16,6 +16,7 @@ export interface FileRecord {
 export default function Sidebar() {
   const { user, logout } = useAuth()
   const pathname = usePathname()
+  const router = useRouter()
   const [history, setHistory] = useState<FileRecord[]>([])
 
   const loadHistory = () => {
@@ -28,6 +29,21 @@ export default function Sidebar() {
     window.addEventListener('fileHistoryUpdated', loadHistory)
     return () => window.removeEventListener('fileHistoryUpdated', loadHistory)
   }, [])
+
+  const openRecord = (record: FileRecord) => {
+    const data = localStorage.getItem(`analysisData_${record.id}`)
+    if (!data) return
+    sessionStorage.setItem('analysisData', data)
+    router.push('/results')
+  }
+
+  const deleteRecord = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    const updated = history.filter((r) => r.id !== id)
+    localStorage.setItem('fileHistory', JSON.stringify(updated))
+    localStorage.removeItem(`analysisData_${id}`)
+    setHistory(updated)
+  }
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col h-full shrink-0">
@@ -58,19 +74,37 @@ export default function Sidebar() {
         {history.length === 0 && (
           <p className="text-xs text-gray-400 px-2">Henüz analiz yok</p>
         )}
-        {history.map((record) => (
-          <div
-            key={record.id}
-            className="px-3 py-2.5 rounded-lg hover:bg-gray-50 mb-1 border border-transparent hover:border-gray-100"
-          >
-            <p className="text-sm text-gray-700 truncate font-medium">
-              {record.name}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {record.filteredCount} lead · {record.date}
-            </p>
-          </div>
-        ))}
+        {history.map((record) => {
+          const hasSavedData = typeof window !== 'undefined'
+            && !!localStorage.getItem(`analysisData_${record.id}`)
+          return (
+            <div
+              key={record.id}
+              onClick={() => hasSavedData && openRecord(record)}
+              className={`group flex items-start justify-between px-3 py-2.5 rounded-lg mb-1 border border-transparent transition-colors ${
+                hasSavedData
+                  ? 'hover:bg-gray-50 hover:border-gray-100 cursor-pointer'
+                  : 'opacity-50 cursor-default'
+              }`}
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-gray-700 truncate font-medium">
+                  {record.name}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {record.filteredCount} lead · {record.date}
+                </p>
+              </div>
+              <button
+                onClick={(e) => deleteRecord(e, record.id)}
+                className="ml-2 shrink-0 text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs pt-0.5"
+                title="Sil"
+              >
+                ✕
+              </button>
+            </div>
+          )
+        })}
       </div>
 
       <div className="border-t border-gray-100 px-4 py-3">

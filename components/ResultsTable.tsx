@@ -5,8 +5,9 @@ import type { AnalyzedLead } from '@/types/lead'
 
 const STATUS_ICONS: Record<string, string> = {
   'Yeniden Değerlendir': '🟢',
-  'Onayla Olumsuz': '🔴',
+  'Yanlış Kayıt': '🗑️',
   Belirsiz: '🟡',
+  'Check Pass': '✅',
 }
 
 const CONFIDENCE_COLORS: Record<string, string> = {
@@ -39,8 +40,8 @@ export default function ResultsTable({ leads }: ResultsTableProps) {
     'Yeniden Değerlendir': leads.filter(
       (l) => l.analysisResult?.suggestedStatus === 'Yeniden Değerlendir'
     ).length,
-    'Onayla Olumsuz': leads.filter(
-      (l) => l.analysisResult?.suggestedStatus === 'Onayla Olumsuz'
+    'Yanlış Kayıt': leads.filter(
+      (l) => l.analysisResult?.suggestedStatus === 'Yanlış Kayıt'
     ).length,
     Belirsiz: leads.filter(
       (l) => l.analysisResult?.suggestedStatus === 'Belirsiz'
@@ -56,11 +57,11 @@ export default function ResultsTable({ leads }: ResultsTableProps) {
           </div>
           <div className="text-sm text-green-600">🟢 Yeniden Değerlendir</div>
         </div>
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-          <div className="text-2xl font-bold text-red-700">
-            {counts['Onayla Olumsuz']}
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-center">
+          <div className="text-2xl font-bold text-orange-700">
+            {counts['Yanlış Kayıt']}
           </div>
-          <div className="text-sm text-red-600">🔴 Onayla Olumsuz</div>
+          <div className="text-sm text-orange-600">🗑️ Yanlış Kayıt</div>
         </div>
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
           <div className="text-2xl font-bold text-yellow-700">
@@ -78,7 +79,7 @@ export default function ResultsTable({ leads }: ResultsTableProps) {
           placeholder="İsim, firma, temsilci ara..."
           className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {['Tümü', 'Yeniden Değerlendir', 'Onayla Olumsuz', 'Belirsiz'].map(
+        {['Tümü', 'Yeniden Değerlendir', 'Yanlış Kayıt', 'Belirsiz', 'Check Pass'].map(
           (opt) => (
             <button
               key={opt}
