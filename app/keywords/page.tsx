@@ -13,25 +13,39 @@ interface TermResult {
 function parseSearchTerms(buffer: ArrayBuffer): string[] {
   const wb = XLSX.read(buffer, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
+  // Get raw arrays to handle Google Ads format (2 metadata rows before headers)
+  const rawRows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' })
 
-  // "Arama terimi" / "Search term" / "Search Term" sütununu bul
-  const headerRow = rows[0] ?? {}
-  const col = Object.keys(headerRow).find((k) =>
-    /arama.?terimi|search.?term/i.test(k)
-  )
+  // Find the header row (contains "Arama terimi" or "Search term")
+  let headerRowIdx = -1
+  let termColIdx = -1
+  let addedColIdx = -1
 
-  if (!col) {
-    // Sütun bulunamazsa ilk sütunu dene
-    const firstCol = Object.keys(headerRow)[0]
-    return rows
-      .map((r) => String(r[firstCol] ?? '').trim())
-      .filter((t) => t && t.length > 1)
+  for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+    const row = rawRows[i]
+    const idx = row.findIndex((cell) => /arama.?terimi|search.?term/i.test(String(cell)))
+    if (idx !== -1) {
+      headerRowIdx = i
+      termColIdx = idx
+      addedColIdx = row.findIndex((cell) => /eklenen.*hariç|added.*excluded/i.test(String(cell)))
+      break
+    }
   }
 
-  return rows
-    .map((r) => String(r[col] ?? '').trim())
-    .filter((t) => t && t.length > 1)
+  if (headerRowIdx === -1 || termColIdx === -1) return []
+
+  return rawRows
+    .slice(headerRowIdx + 1)
+    .filter((row) => {
+      const term = String(row[termColIdx] ?? '').trim()
+      if (!term || term.length <= 1) return false
+      // Skip summary rows
+      if (/^toplam[:\s]/i.test(term)) return false
+      // Skip already-excluded terms
+      if (addedColIdx !== -1 && /hariç/i.test(String(row[addedColIdx] ?? ''))) return false
+      return true
+    })
+    .map((row) => String(row[termColIdx]).trim())
 }
 
 export default function KeywordsPage() {
