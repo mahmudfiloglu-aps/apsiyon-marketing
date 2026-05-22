@@ -9,33 +9,52 @@ function getClient() {
   })
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 async function analyzeLead(
   lead: LeadRow,
-  services: string[]
+  services: string[],
+  retries = 3
 ): Promise<AnalysisResult> {
   const prompt = buildPrompt(lead, services)
 
-  const response = await getClient().chat.completions.create({
-    model: 'gemini-2.0-flash',
-    max_tokens: 256,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const response = await getClient().chat.completions.create({
+        model: 'gemini-2.0-flash',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: prompt }],
+      })
 
-  const text = response.choices[0]?.message?.content || ''
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error('AI yanıtı JSON içermiyor')
+      const text = response.choices[0]?.message?.content || ''
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error('AI yanıtı JSON içermiyor')
 
-  const parsed = JSON.parse(jsonMatch[0])
+      const parsed = JSON.parse(jsonMatch[0])
 
-  return {
-    leadId: lead['ID'],
-    originalStatus: 'Uygun Bulunmadı',
-    originalDetail: lead['Durum Detayı'],
-    suggestedStatus: parsed.suggestedStatus,
-    confidence: parsed.confidence,
-    reason: parsed.reason,
-    matchedServices: parsed.matchedServices || [],
+      return {
+        leadId: lead['ID'],
+        originalStatus: 'Uygun Bulunmadı',
+        originalDetail: lead['Durum Detayı'],
+        suggestedStatus: parsed.suggestedStatus,
+        confidence: parsed.confidence,
+        reason: parsed.reason,
+        matchedServices: parsed.matchedServices || [],
+      }
+    } catch (err) {
+      const is429 =
+        err instanceof Error &&
+        (err.message.includes('429') || err.message.includes('rate'))
+
+      if (is429 && attempt < retries - 1) {
+        await sleep(4000 * (attempt + 1))
+        continue
+      }
+      throw err
+    }
   }
+
+  throw new Error('Maksimum deneme sayısına ulaşıldı')
 }
 
 export async function analyzeLeadsBatch(
@@ -44,7 +63,7 @@ export async function analyzeLeadsBatch(
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<string, AnalysisResult | Error>> {
   const results = new Map<string, AnalysisResult | Error>()
-  const BATCH_SIZE = 5
+  const BATCH_SIZE = 3
 
   for (let i = 0; i < leads.length; i += BATCH_SIZE) {
     const batch = leads.slice(i, i + BATCH_SIZE)
@@ -62,6 +81,11 @@ export async function analyzeLeadsBatch(
     })
 
     onProgress?.(Math.min(i + BATCH_SIZE, leads.length), leads.length)
+
+    // Gemini free tier: dakikada 15 istek — batch arası bekleme
+    if (i + BATCH_SIZE < leads.length) {
+      await sleep(2000)
+    }
   }
 
   return results
