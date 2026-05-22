@@ -1,11 +1,32 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { VertexAI } from '@google-cloud/vertexai'
+import * as fs from 'fs'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
 function getClient() {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
-  return new GoogleGenerativeAI(apiKey)
+  const project = process.env.GOOGLE_CLOUD_PROJECT
+  const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
+  if (!project) throw new Error('GOOGLE_CLOUD_PROJECT not configured')
+
+  // GOOGLE_APPLICATION_CREDENTIALS: dosya yolu veya JSON içeriği olabilir
+  const credEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS
+  let googleAuthOptions: Record<string, unknown> | undefined
+
+  if (credEnv) {
+    if (credEnv.trim().startsWith('{')) {
+      // JSON içeriği doğrudan verilmiş
+      googleAuthOptions = { credentials: JSON.parse(credEnv) }
+    } else if (fs.existsSync(credEnv)) {
+      // Dosya yolu verilmiş
+      googleAuthOptions = { credentials: JSON.parse(fs.readFileSync(credEnv, 'utf-8')) }
+    }
+  }
+
+  return new VertexAI({
+    project,
+    location,
+    ...(googleAuthOptions ? { googleAuthOptions } : {}),
+  })
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -16,12 +37,13 @@ async function analyzeLead(
   retries = 3
 ): Promise<AnalysisResult> {
   const prompt = buildPrompt(lead, services)
+  const modelName = process.env.GEMINI_CLASSIFICATION_MODEL || 'gemini-2.5-flash'
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const model = getClient().getGenerativeModel({ model: 'gemini-2.0-flash' })
+      const model = getClient().getGenerativeModel({ model: modelName })
       const result = await model.generateContent(prompt)
-      const text = result.response.text()
+      const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || ''
 
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
