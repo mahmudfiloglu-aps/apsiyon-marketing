@@ -52,7 +52,7 @@ export default function Sidebar() {
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col h-full shrink-0">
       <div className="px-5 py-4 border-b border-gray-100">
         <h1 className="font-bold text-gray-900 text-sm leading-tight">
-          Lead Yeniden Değerlendirme
+          ApsiyonLead
         </h1>
         <p className="text-xs text-gray-400 mt-0.5">Apsiyon</p>
       </div>
