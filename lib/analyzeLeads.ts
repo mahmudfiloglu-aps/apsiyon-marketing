@@ -2,10 +2,12 @@ import OpenAI from 'openai'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
-const client = new OpenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-})
+function getClient() {
+  return new OpenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  })
+}
 
 async function analyzeLead(
   lead: LeadRow,
@@ -13,7 +15,7 @@ async function analyzeLead(
 ): Promise<AnalysisResult> {
   const prompt = buildPrompt(lead, services)
 
-  const response = await client.chat.completions.create({
+  const response = await getClient().chat.completions.create({
     model: 'gemini-2.0-flash',
     max_tokens: 256,
     messages: [{ role: 'user', content: prompt }],
