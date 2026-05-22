@@ -44,12 +44,12 @@ async function analyzeLead(
 
       return {
         leadId: lead['ID'],
-        originalStatus: 'Uygun Bulunmadı',
+        originalStatus: 'Uygun Bulunmadı' as const,
         originalDetail: lead['Durum Detayı'],
-        suggestedStatus: parsed.suggestedStatus,
-        confidence: parsed.confidence,
-        reason: parsed.reason,
-        matchedServices: parsed.matchedServices || [],
+        suggestedStatus: parsed.suggestedStatus as AnalysisResult['suggestedStatus'],
+        confidence: parsed.confidence as AnalysisResult['confidence'],
+        reason: parsed.reason as string,
+        matchedServices: (parsed.matchedServices as string[]) || [],
       }
     } catch (err) {
       const is429 =
