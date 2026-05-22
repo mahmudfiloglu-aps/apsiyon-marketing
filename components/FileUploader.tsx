@@ -5,13 +5,13 @@ import { parseLeadsFile } from '@/lib/parseLeads'
 import type { LeadRow } from '@/types/lead'
 
 interface FileUploaderProps {
-  onLeadsLoaded: (leads: LeadRow[], totalCount: number) => void
+  onLeadsLoaded: (leads: LeadRow[], totalCount: number, fileName: string) => void
 }
 
 export default function FileUploader({ onLeadsLoaded }: FileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
-  const [fileName, setFileName] = useState('')
+  const [label, setLabel] = useState('')
   const [error, setError] = useState('')
 
   const processFile = async (file: File) => {
@@ -23,8 +23,10 @@ export default function FileUploader({ onLeadsLoaded }: FileUploaderProps) {
     const buffer = await file.arrayBuffer()
     try {
       const { filteredRows, totalCount, filteredCount } = parseLeadsFile(buffer)
-      setFileName(`${file.name} — ${filteredCount} / ${totalCount} lead (Uygun Bulunmadı)`)
-      onLeadsLoaded(filteredRows, totalCount)
+      setLabel(
+        `${file.name} — ${filteredCount} / ${totalCount} lead (Uygun Bulunmadı)`
+      )
+      onLeadsLoaded(filteredRows, totalCount, file.name)
     } catch {
       setError('Dosya okunamadı. Lütfen formatı kontrol edin.')
     }
@@ -62,8 +64,8 @@ export default function FileUploader({ onLeadsLoaded }: FileUploaderProps) {
         onChange={handleFile}
       />
       <div className="text-4xl mb-3">📂</div>
-      {fileName ? (
-        <p className="text-sm font-medium text-green-700">{fileName}</p>
+      {label ? (
+        <p className="text-sm font-medium text-green-700">{label}</p>
       ) : (
         <>
           <p className="font-medium text-gray-700">
