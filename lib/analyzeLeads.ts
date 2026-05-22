@@ -1,17 +1,11 @@
-import { VertexAI } from '@google-cloud/vertexai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
 function getClient() {
-  const credentials = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-    ? JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON)
-    : undefined
-
-  return new VertexAI({
-    project: process.env.VERTEX_PROJECT_ID!,
-    location: process.env.VERTEX_LOCATION || 'us-central1',
-    googleAuthOptions: credentials ? { credentials } : undefined,
-  })
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
+  return new GoogleGenerativeAI(apiKey)
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -25,9 +19,9 @@ async function analyzeLead(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const model = getClient().getGenerativeModel({ model: 'gemini-2.5-flash' })
+      const model = getClient().getGenerativeModel({ model: 'gemini-2.0-flash' })
       const result = await model.generateContent(prompt)
-      const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const text = result.response.text()
 
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
@@ -93,6 +87,7 @@ export async function analyzeLeadsBatch(
     })
 
     onProgress?.(Math.min(i + BATCH_SIZE, leads.length), leads.length)
+    if (i + BATCH_SIZE < leads.length) await sleep(500)
   }
 
   return results
