@@ -90,7 +90,7 @@ export async function analyzeLeadsBatch(
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<string, AnalysisResult | Error>> {
   const results = new Map<string, AnalysisResult | Error>()
-  const BATCH_SIZE = 5
+  const BATCH_SIZE = 3
 
   for (let i = 0; i < leads.length; i += BATCH_SIZE) {
     const batch = leads.slice(i, i + BATCH_SIZE)

@@ -45,7 +45,7 @@ export default function HomePage() {
     setProgress({ done: 0, total: leads.length })
 
     try {
-      const CHUNK_SIZE = 50
+      const CHUNK_SIZE = 10
       const allResults: Record<string, unknown> = {}
 
       for (let i = 0; i < leads.length; i += CHUNK_SIZE) {
