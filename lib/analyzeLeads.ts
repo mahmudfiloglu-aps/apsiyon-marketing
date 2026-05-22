@@ -28,9 +28,19 @@ async function analyzeLead(
 
       const text = response.choices[0]?.message?.content || ''
       const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) throw new Error('AI yanıtı JSON içermiyor')
+      if (!jsonMatch) {
+        if (text.toLowerCase().includes('error') || text.toLowerCase().includes('rate')) {
+          throw new Error('429')
+        }
+        throw new Error('AI yanıtı JSON içermiyor: ' + text.slice(0, 80))
+      }
 
-      const parsed = JSON.parse(jsonMatch[0])
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(jsonMatch[0])
+      } catch {
+        throw new Error('JSON parse hatası: ' + jsonMatch[0].slice(0, 80))
+      }
 
       return {
         leadId: lead['ID'],
