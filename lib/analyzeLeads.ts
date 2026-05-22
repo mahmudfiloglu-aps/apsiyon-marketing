@@ -3,8 +3,8 @@ import type { LeadRow, AnalysisResult } from '@/types/lead'
 import { buildPrompt } from './buildPrompt'
 
 const client = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.GEMINI_API_KEY,
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 })
 
 async function analyzeLead(
@@ -14,7 +14,7 @@ async function analyzeLead(
   const prompt = buildPrompt(lead, services)
 
   const response = await client.chat.completions.create({
-    model: 'deepseek-chat',
+    model: 'gemini-2.0-flash',
     max_tokens: 256,
     messages: [{ role: 'user', content: prompt }],
   })
