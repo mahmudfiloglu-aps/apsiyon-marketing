@@ -75,13 +75,27 @@ export default function LeadCard({ item, decision, onConfirm, onReject }: Props)
       {/* Meta */}
       <div className="grid grid-cols-2 gap-1.5 mb-3 text-xs text-gray-500">
         <div>
-          <span className="font-medium text-gray-600">Durum: </span>
-          {lead['Durum Detayı'] || '—'}
+          <span className="font-medium text-gray-600">Kayıt Tipi: </span>
+          {lead['Kayıt Tipi'] || lead['Hesap Tipi'] || '—'}
         </div>
         <div>
           <span className="font-medium text-gray-600">Temsilci: </span>
           {lead['Satış Temsilcisi'] || '—'}
         </div>
+        <div>
+          <span className="font-medium text-gray-600">Durum: </span>
+          {lead['Durum Detayı'] || '—'}
+        </div>
+        <div>
+          <span className="font-medium text-gray-600">Son Aktivite: </span>
+          {lead['Son Aktivite Başlığı'] || '—'}
+        </div>
+        {lead['Başvuru Kampanyası'] && (
+          <div className="col-span-2">
+            <span className="font-medium text-gray-600">Kampanya: </span>
+            <span className="text-blue-600">{lead['Başvuru Kampanyası']}</span>
+          </div>
+        )}
       </div>
 
       {/* Sales note */}

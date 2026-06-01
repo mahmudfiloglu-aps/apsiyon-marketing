@@ -32,8 +32,21 @@ export function buildPrompt(lead: LeadRow, services: string[]): string {
    Ne yapar: Saha personelinin (güvenlik, temizlik, teknik) görevlerini mobil üzerinden yönetir, tur rotası ve araç/ziyaretçi takibi içerir.
    Doğru hedef: Personel çalıştıran site/rezidans yöneticisi.
 
+━━━ AKSİYON BAZLI DEĞERLENDİRME KILAVUZU ━━━
+
+Başvuru Kampanyası → Hangi Apsiyon ürününe başvurduklarını gösterir:
+- "PTS" / "Plaka" içerenler → Plaka Tanıma Sistemi'ne başvurmuş; otopark/giriş kontrol ihtiyacı var
+- "Yazılım" / "Site Yönetim" / "Aidat" içerenler → Site Yönetim Yazılımı'na başvurmuş
+- "QR" / "Geçiş" içerenler → QR Kod Geçiş Sistemi'ne başvurmuş
+- "Kazan" / "Isıtma" içerenler → Kazan Otomasyon Sistemi'ne başvurmuş
+- "Tur" / "Güvenlik" içerenler → Tur Kontrol / Saha Mobil Uygulaması'na başvurmuş
+- "Akbank" içerenler → Apsiyon'un Akbank kurumsal ortaklık kampanyası; banka müşterileri (site/apartman yöneticisi) bu kanal üzerinden gelir. "Eski müşteri Akbank şubeye yönlendirdim" = satışçı CRM kayıt işlemi için Akbank'ın şubesini kullanmış demektir, şubenin kendisi müşteri değil. Akbank kampanyasında HEDEF = Apsiyon'un normal hedef kitlesi (site/rezidans yöneticisi).
+
+HESAP TİPİ → CRM'deki hesap sınıfı. "Account" = mevcut hesap kaydı var. "New Lead" = ilk temas.
+
 ━━━ LEAD BİLGİLERİ ━━━
-Hesap Tipi: ${lead['Hesap Tipi'] || '—'}
+Başvuru Kampanyası: ${lead['Başvuru Kampanyası'] || '—'}
+Hesap Tipi / Kayıt Tipi: ${lead['Hesap Tipi'] || '—'} / ${lead['Kayıt Tipi'] || '—'}
 Durum Detayı: ${lead['Durum Detayı'] || '—'}
 Olumsuzluk Nedeni: ${lead['Olumsuzluk Nedeni'] || '—'}
 Son Aktivite Başlığı: ${lead['Son Aktivite Başlığı'] || '—'}
@@ -41,10 +54,11 @@ Satışçı Notu: "${lead['Son Aktivite Açıklaması'] || '—'}"
 ━━━━━━━━━━━━━━━━━━━━━━━
 
 KESİN KURALLAR:
-1. Kampanya adı/kaynağı değerlendirme kriteri DEĞİLDİR — tamamen görmezden gel.
+1. Başvuru Kampanyası hangi ürüne başvurduklarını gösterir — değerlendirmeni o ürün özelinde yap. Bir ürüne uygun olmayan lead başka ürüne uygun olabilir, bunu ayrıca belirt.
 2. Satışçı notunda "yanlış kayıt", "test girişi", "hatalı kayıt" yazıyorsa → satışçının kararına güven, "Yanlış Kayıt" seç.
 3. Site sakini veya daire sahibi olan lead'ler "geçersiz" değildir — yöneticiye iletme niyeti veya yönetici bağlantısı varsa değerli olabilir.
 4. Notun uzunluğu değil içeriği önemlidir; "aradım, ulaşamadım" gibi süreç notları kararı belirlemez, içerik notları belirler.
+5. Akbank kampanyasından gelen lead → Akbank'ın kendisi müşteri değil; satışçının "Akbank şubeye yönlendirdim" notu = Akbank'ın kendi işletmesi için değil, Akbank üzerinden ulaşılan son kullanıcı (site yöneticisi) için değerlendir.
 
 KARAR KRİTERLERİ:
 
