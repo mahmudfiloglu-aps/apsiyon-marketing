@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import LeadCard from '@/components/LeadCard'
 import EmailComposer from '@/components/EmailComposer'
 import ExportButton from '@/components/ExportButton'
+import FilterPanel, { applyFilters, EMPTY_FILTERS, type FilterState } from '@/components/FilterPanel'
 import type { AnalyzedLead, AnalysisResult, LeadRow, SuggestedStatus } from '@/types/lead'
 
 const ACTIONABLE = ['Yeniden Değerlendir', 'Yanlış Kayıt', 'Yetersiz Not', 'Belirsiz'] as const
@@ -16,6 +17,7 @@ export default function ResultsClient() {
   const [decisions, setDecisions] = useState<Record<string, 'confirmed' | 'rejected'>>({})
   const [overrides, setOverrides] = useState<Record<string, SuggestedStatus>>({})
   const [filter, setFilter] = useState('Tümü')
+  const [panelFilters, setPanelFilters] = useState<FilterState>(EMPTY_FILTERS)
   const [showCheckPass, setShowCheckPass] = useState(false)
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
@@ -191,10 +193,10 @@ export default function ResultsClient() {
     : null
 
   const displayLeads = showCheckPass ? leads : actionableLeads
-  const filtered = displayLeads.filter((l) => {
-    if (filter === 'Tümü') return true
-    return effectiveStatus(l) === filter
-  })
+  const filtered = applyFilters(
+    displayLeads.filter((l) => filter === 'Tümü' || effectiveStatus(l) === filter),
+    panelFilters
+  )
 
   if (loading) {
     return (
@@ -287,7 +289,14 @@ export default function ResultsClient() {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6">
+      <FilterPanel
+        leads={leads}
+        filters={panelFilters}
+        onChange={setPanelFilters}
+        resultCount={filtered.length}
+      />
+
+      <div className="flex flex-wrap gap-2 mb-4">
         {(['Tümü', ...ACTIONABLE, ...(showCheckPass ? ['Check Pass'] : [])] as string[]).map((opt) => (
           <button
             key={opt}
