@@ -45,69 +45,90 @@ function QualityDot({ score }: { score: number | null }) {
 }
 
 function AccuracySection({ rows }: { rows: AccuracyRow[] }) {
-  const confirmed = rows.filter((r) => r.user_decision === 'confirmed')
-  const rejected = rows.filter((r) => r.user_decision === 'rejected')
-
-  const totalConfirmed = confirmed.reduce((s, r) => s + r.count, 0)
-  const totalRejected = rejected.reduce((s, r) => s + r.count, 0)
+  const totalConfirmed = rows.filter((r) => r.user_decision === 'confirmed').reduce((s, r) => s + r.count, 0)
+  const totalRejected = rows.filter((r) => r.user_decision === 'rejected').reduce((s, r) => s + r.count, 0)
   const total = totalConfirmed + totalRejected
+
+  // Per-category breakdown
+  const categories = [...new Set(rows.map((r) => r.ai_status))]
+  const byCategory = categories.map((cat) => {
+    const conf = rows.find((r) => r.ai_status === cat && r.user_decision === 'confirmed')?.count ?? 0
+    const rej = rows.find((r) => r.ai_status === cat && r.user_decision === 'rejected')?.count ?? 0
+    const tot = conf + rej
+    return { cat, conf, rej, tot, pct: tot ? Math.round((conf / tot) * 100) : null }
+  }).filter((r) => r.tot > 0).sort((a, b) => (a.pct ?? 100) - (b.pct ?? 100))
 
   if (!total) return (
     <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Doğruluk</h2>
-      <p className="text-sm text-gray-400">Henüz değerlendirme kaydedilmedi.</p>
+      <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Doğruluk & Yanılma Paterni</h2>
+      <p className="text-sm text-gray-400">Henüz değerlendirme kaydedilmedi. Sonuç sayfasında "AI Doğru / AI Hatalı" butonlarını kullanmaya başla.</p>
     </div>
   )
 
-  const pct = Math.round((totalConfirmed / total) * 100)
+  const overallPct = Math.round((totalConfirmed / total) * 100)
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Doğruluk</h2>
-      <div className="flex items-center gap-6 mb-6">
-        <div className="text-center">
-          <div className={`text-4xl font-bold ${pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
-            %{pct}
+    <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-6">
+      <h2 className="text-lg font-semibold text-gray-900">AI Doğruluk & Yanılma Paterni</h2>
+
+      {/* Overall */}
+      <div className="flex items-center gap-6">
+        <div className="text-center shrink-0">
+          <div className={`text-4xl font-bold ${overallPct >= 70 ? 'text-green-600' : overallPct >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
+            %{overallPct}
           </div>
-          <div className="text-xs text-gray-500 mt-1">Onay Oranı</div>
+          <div className="text-xs text-gray-500 mt-1">Genel Onay</div>
         </div>
         <div className="flex-1">
           <div className="flex gap-4 text-sm mb-2">
             <span className="text-green-700 font-medium">✓ {totalConfirmed} doğru</span>
             <span className="text-red-600 font-medium">✗ {totalRejected} hatalı</span>
+            <span className="text-gray-400">{total} toplam</span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-3">
-            <div
-              className="bg-green-500 h-3 rounded-full transition-all"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${overallPct}%` }} />
           </div>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
-              <th className="pb-2 font-medium">AI Kararı</th>
-              <th className="pb-2 font-medium">Kullanıcı</th>
-              <th className="pb-2 font-medium text-right">Adet</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-b border-gray-50">
-                <td className="py-1.5 text-gray-700">{r.ai_status}</td>
-                <td className="py-1.5">
-                  {r.user_decision === 'confirmed'
-                    ? <span className="text-green-600">✓ Doğru</span>
-                    : <span className="text-red-500">✗ Hatalı</span>}
-                </td>
-                <td className="py-1.5 text-right font-medium text-gray-900">{r.count}</td>
-              </tr>
+
+      {/* Per-category pattern */}
+      {byCategory.length > 0 && (
+        <div>
+          <p className="text-sm font-medium text-gray-700 mb-3">Kategoriye Göre Doğruluk</p>
+          <div className="space-y-2">
+            {byCategory.map((row) => (
+              <div key={row.cat} className="flex items-center gap-3">
+                <div className="w-40 text-sm text-gray-700 truncate shrink-0">{row.cat}</div>
+                <div className="flex-1 bg-gray-100 rounded-full h-2.5 relative">
+                  <div
+                    className={`h-2.5 rounded-full transition-all ${
+                      (row.pct ?? 100) >= 70 ? 'bg-green-400' :
+                      (row.pct ?? 100) >= 50 ? 'bg-yellow-400' : 'bg-red-400'
+                    }`}
+                    style={{ width: `${row.pct ?? 100}%` }}
+                  />
+                </div>
+                <div className="w-24 text-right text-xs text-gray-500 shrink-0">
+                  <span className={`font-semibold ${(row.pct ?? 100) >= 70 ? 'text-green-600' : (row.pct ?? 100) >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
+                    %{row.pct ?? '—'}
+                  </span>
+                  {' '}({row.rej} hata / {row.tot})
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+          {byCategory[0] && (byCategory[0].pct ?? 100) < 60 && (
+            <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <p className="text-sm font-medium text-amber-800">
+                ⚠ "{byCategory[0].cat}" kararları en çok yanılıyor (%{byCategory[0].pct} doğruluk).
+              </p>
+              <p className="text-xs text-amber-600 mt-1">
+                Bu kategorideki {byCategory[0].rej} reddedilen karar otomatik olarak sonraki analizlerde AI'ya örnek olarak gösteriliyor.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

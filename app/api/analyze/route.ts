@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server'
 import { analyzeLead } from '@/lib/analyzeLeads'
 import { detectJunkLead } from '@/lib/detectJunkLead'
+import { getSession } from '@/lib/auth'
+import { getRejectedExamples } from '@/lib/db'
 import type { LeadRow } from '@/types/lead'
-import type { ReanalysisContext } from '@/lib/buildPrompt'
+import type { ReanalysisContext, RejectedExample } from '@/lib/buildPrompt'
 
 export const maxDuration = 60
 
@@ -16,7 +18,15 @@ export async function POST(req: NextRequest) {
   if (!leads?.length) return Response.json({ error: 'Lead listesi boş' }, { status: 400 })
   if (!services?.length) return Response.json({ error: 'Hizmet listesi boş' }, { status: 400 })
 
-  console.log(`[analyze] ${leads.length} lead${reanalysis ? ' (yeniden analiz)' : ''}, paralel işleniyor`)
+  let rejectedExamples: RejectedExample[] = []
+  if (!reanalysis) {
+    try {
+      const session = await getSession()
+      if (session) rejectedExamples = await getRejectedExamples(session.userId, 10)
+    } catch {}
+  }
+
+  console.log(`[analyze] ${leads.length} lead${reanalysis ? ' (yeniden analiz)' : ''}, ${rejectedExamples.length} red örneği, paralel işleniyor`)
 
   const encoder = new TextEncoder()
   const CONCURRENCY = 10
@@ -37,7 +47,7 @@ export async function POST(req: NextRequest) {
             const junk = reanalysis ? null : detectJunkLead(lead)
             const task = junk
               ? Promise.resolve(junk)
-              : analyzeLead(lead, services, 3, reanalysis)
+              : analyzeLead(lead, services, 3, reanalysis, rejectedExamples)
             task
               .then((result) => {
                 if (junk) console.log(`[analyze] junk skip: ${lead['ID']} — ${lead['İlgili Kişi']}`)

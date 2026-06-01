@@ -144,6 +144,29 @@ export async function getDecisionAccuracy(userId: string) {
   return rows
 }
 
+export async function getRejectedExamples(userId: string, limit = 10) {
+  const sql = getDb()
+  await createDecisionsTable()
+  const rows = await sql`
+    SELECT
+      elem->'lead'->>'Son Aktivite Açıklaması' AS note,
+      elem->'lead'->>'Başvuru Kampanyası'       AS campaign,
+      elem->'lead'->>'Kayıt Tipi'               AS record_type,
+      d.ai_status,
+      elem->'analysisResult'->>'reason'          AS ai_reason
+    FROM lead_decisions d
+    JOIN analyses a ON d.analysis_id = a.id,
+         jsonb_array_elements(a.results) AS elem
+    WHERE a.user_id = ${userId}
+      AND d.user_decision = 'rejected'
+      AND elem->'lead'->>'ID' = d.lead_id
+      AND elem->'analysisResult' IS NOT NULL
+    ORDER BY d.created_at DESC
+    LIMIT ${limit}
+  `
+  return rows as { note: string; campaign: string; record_type: string; ai_status: string; ai_reason: string }[]
+}
+
 // ── Analytics ──────────────────────────────────────────
 
 export async function getAnalytics(userId: string) {

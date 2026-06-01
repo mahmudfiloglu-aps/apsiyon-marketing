@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai'
 import type { LeadRow, AnalysisResult } from '@/types/lead'
-import { buildPrompt, type ReanalysisContext } from './buildPrompt'
+import { buildPrompt, type ReanalysisContext, type RejectedExample } from './buildPrompt'
 
 function getClient() {
   const project = process.env.GOOGLE_CLOUD_PROJECT
@@ -32,9 +32,10 @@ export async function analyzeLead(
   lead: LeadRow,
   services: string[],
   retries = 3,
-  reanalysis?: ReanalysisContext
+  reanalysis?: ReanalysisContext,
+  rejectedExamples?: RejectedExample[]
 ): Promise<AnalysisResult> {
-  const prompt = buildPrompt(lead, services, reanalysis)
+  const prompt = buildPrompt(lead, services, reanalysis, rejectedExamples)
   const modelName = process.env.GEMINI_CLASSIFICATION_MODEL || 'gemini-2.5-flash'
 
   for (let attempt = 0; attempt < retries; attempt++) {

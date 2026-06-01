@@ -5,7 +5,29 @@ export interface ReanalysisContext {
   previousReason: string
 }
 
-export function buildPrompt(lead: LeadRow, services: string[], reanalysis?: ReanalysisContext): string {
+export interface RejectedExample {
+  note: string
+  campaign: string
+  record_type: string
+  ai_status: string
+  ai_reason: string
+}
+
+export function buildPrompt(lead: LeadRow, services: string[], reanalysis?: ReanalysisContext, rejectedExamples?: RejectedExample[]): string {
+  const feedbackSection = (rejectedExamples && rejectedExamples.length > 0) ? `
+━━━ KULLANICI GERİBİLDİRİMİ — AI'NIN YANILDIĞI ÖRNEKLER ━━━
+Aşağıdaki leadlerde AI hatalı karar verdi. Bu kararları kullanıcı reddetti.
+Aynı kalıpları tekrarlamaktan kaçın:
+
+${rejectedExamples.map((ex, i) => `[${i + 1}] AI "${ex.ai_status}" demişti → YANLIŞ
+   Kampanya: ${ex.campaign || '—'} | Kayıt: ${ex.record_type || '—'}
+   Satışçı Notu: "${(ex.note || '—').slice(0, 120)}"
+   AI Gerekçesi: "${(ex.ai_reason || '—').slice(0, 150)}"`).join('\n\n')}
+
+→ Bu örneklerdeki hatayı anlayarak şimdiki lead için daha isabetli karar ver.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : ''
+
   const reanalysisSection = reanalysis ? `
 ━━━ YENİDEN ANALİZ — KRİTİK BAĞLAM ━━━
 Bu lead daha önce AI tarafından "${reanalysis.previousStatus}" olarak sınıflandırıldı.
@@ -18,7 +40,7 @@ KULLANICI BU KARARI YANLIŞ BULDU ve yeniden analiz talep etti.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ` : ''
 
-  return `${reanalysisSection}Sen Apsiyon şirketinin satış kalite kontrol uzmanısın. Apsiyon, apartman, site, rezidans ve toplu konut yöneticilerine yönelik bir B2B SaaS + donanım platformudur. Türkiye'nin lider site yönetim teknolojisi şirketidir.
+  return `${feedbackSection}${reanalysisSection}Sen Apsiyon şirketinin satış kalite kontrol uzmanısın. Apsiyon, apartman, site, rezidans ve toplu konut yöneticilerine yönelik bir B2B SaaS + donanım platformudur. Türkiye'nin lider site yönetim teknolojisi şirketidir.
 
 ━━━ CRM HESAP TİPİ — KRİTİK ━━━
 
