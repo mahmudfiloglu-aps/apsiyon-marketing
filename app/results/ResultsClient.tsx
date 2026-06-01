@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import LeadCard from '@/components/LeadCard'
+import BulkActions from '@/components/BulkActions'
 import EmailComposer from '@/components/EmailComposer'
 import ExportButton from '@/components/ExportButton'
 import FilterPanel, { applyFilters, EMPTY_FILTERS, type FilterState } from '@/components/FilterPanel'
@@ -177,14 +178,57 @@ export default function ResultsClient() {
     }
   }
 
+  const saveDecisionsDebounced = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const persistDecisions = useCallback((
+    decisionsMap: Record<string, 'confirmed' | 'rejected'>,
+    leadsArr: AnalyzedLead[]
+  ) => {
+    if (saveDecisionsDebounced.current) clearTimeout(saveDecisionsDebounced.current)
+    saveDecisionsDebounced.current = setTimeout(() => {
+      const analysisId = currentAnalysisId.current
+      if (!analysisId) return
+      const payload = Object.entries(decisionsMap).map(([leadId, userDecision]) => {
+        const lead = leadsArr.find((l) => l.lead['ID'] === leadId)
+        return {
+          leadId,
+          aiStatus: lead?.analysisResult?.suggestedStatus ?? '',
+          userDecision,
+        }
+      })
+      if (!payload.length) return
+      fetch('/api/decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysisId, decisions: payload }),
+      }).catch(() => {})
+    }, 1500)
+  }, [])
+
   const handleDecision = (leadId: string, decision: 'confirmed' | 'rejected') => {
     setDecisions((prev) => {
-      if (prev[leadId] === decision) {
-        const next = { ...prev }
-        delete next[leadId]
-        return next
-      }
-      return { ...prev, [leadId]: decision }
+      const next = prev[leadId] === decision
+        ? (({ [leadId]: _, ...rest }) => rest)(prev)
+        : { ...prev, [leadId]: decision }
+      persistDecisions(next, leads)
+      return next
+    })
+  }
+
+  const handleBulkDecision = (ids: string[], decision: 'confirmed' | 'rejected') => {
+    setDecisions((prev) => {
+      const next = { ...prev }
+      ids.forEach((id) => { next[id] = decision })
+      persistDecisions(next, leads)
+      return next
+    })
+  }
+
+  const handleBulkOverride = (ids: string[], status: SuggestedStatus) => {
+    setOverrides((prev) => {
+      const next = { ...prev }
+      ids.forEach((id) => { next[id] = status })
+      return next
     })
   }
 
@@ -381,6 +425,12 @@ export default function ResultsClient() {
           </button>
         ))}
       </div>
+
+      <BulkActions
+        filteredLeads={filtered}
+        onBulkDecision={handleBulkDecision}
+        onBulkOverride={handleBulkOverride}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((item, i) => (

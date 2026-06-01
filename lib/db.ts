@@ -96,6 +96,96 @@ export async function deleteAnalysis(id: string, userId: string) {
   await sql`DELETE FROM analyses WHERE id = ${id} AND user_id = ${userId}`
 }
 
+// ── Lead Decisions ─────────────────────────────────────
+
+export async function createDecisionsTable() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS lead_decisions (
+      analysis_id   VARCHAR(255) NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+      lead_id       VARCHAR(255) NOT NULL,
+      ai_status     VARCHAR(100),
+      user_decision VARCHAR(20)  NOT NULL,
+      created_at    TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (analysis_id, lead_id)
+    )
+  `
+}
+
+export async function saveDecisions(
+  analysisId: string,
+  decisions: { leadId: string; aiStatus: string; userDecision: string }[]
+) {
+  if (!decisions.length) return
+  const sql = getDb()
+  await createDecisionsTable()
+  for (const d of decisions) {
+    await sql`
+      INSERT INTO lead_decisions (analysis_id, lead_id, ai_status, user_decision)
+      VALUES (${analysisId}, ${d.leadId}, ${d.aiStatus}, ${d.userDecision})
+      ON CONFLICT (analysis_id, lead_id) DO UPDATE
+        SET user_decision = EXCLUDED.user_decision,
+            ai_status     = EXCLUDED.ai_status,
+            created_at    = NOW()
+    `
+  }
+}
+
+export async function getDecisionAccuracy(userId: string) {
+  const sql = getDb()
+  await createDecisionsTable()
+  const rows = await sql`
+    SELECT d.ai_status, d.user_decision, COUNT(*)::int AS count
+    FROM lead_decisions d
+    JOIN analyses a ON d.analysis_id = a.id
+    WHERE a.user_id = ${userId}
+    GROUP BY d.ai_status, d.user_decision
+  `
+  return rows
+}
+
+// ── Analytics ──────────────────────────────────────────
+
+export async function getAnalytics(userId: string) {
+  const sql = getDb()
+
+  const repRows = await sql`
+    SELECT
+      elem->'lead'->>'Satış Temsilcisi' AS rep,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Yeniden Değerlendir')::int AS reeval,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Yanlış Kayıt')::int        AS wrong_record,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Yetersiz Not')::int        AS insufficient,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Belirsiz')::int            AS unclear,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Check Pass')::int          AS check_pass,
+      ROUND(AVG((elem->'analysisResult'->>'qualityScore')::numeric), 1) AS avg_quality
+    FROM analyses a, jsonb_array_elements(a.results) AS elem
+    WHERE a.user_id = ${userId}
+      AND elem->'lead'->>'Satış Temsilcisi' IS NOT NULL
+      AND elem->'lead'->>'Satış Temsilcisi' != ''
+      AND elem->'analysisResult' IS NOT NULL
+    GROUP BY 1 ORDER BY reeval DESC, total DESC LIMIT 50
+  `
+
+  const campaignRows = await sql`
+    SELECT
+      elem->'lead'->>'Başvuru Kampanyası' AS campaign,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Yeniden Değerlendir')::int AS reeval,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Yanlış Kayıt')::int        AS wrong_record,
+      COUNT(*) FILTER (WHERE elem->'analysisResult'->>'suggestedStatus' = 'Check Pass')::int          AS check_pass,
+      ROUND(AVG((elem->'analysisResult'->>'qualityScore')::numeric), 1) AS avg_quality
+    FROM analyses a, jsonb_array_elements(a.results) AS elem
+    WHERE a.user_id = ${userId}
+      AND elem->'lead'->>'Başvuru Kampanyası' IS NOT NULL
+      AND elem->'lead'->>'Başvuru Kampanyası' != ''
+      AND elem->'analysisResult' IS NOT NULL
+    GROUP BY 1 ORDER BY reeval DESC, total DESC LIMIT 50
+  `
+
+  return { reps: repRows, campaigns: campaignRows }
+}
+
 export async function getCompanyHistory(
   userId: string,
   companies: string[],

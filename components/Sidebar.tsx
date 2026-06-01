@@ -78,6 +78,16 @@ export default function Sidebar() {
         >
           🔑 Negatif Kelimeler
         </Link>
+        <Link
+          href="/analytics"
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            pathname === '/analytics'
+              ? 'bg-blue-50 text-blue-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          📊 Analitik
+        </Link>
       </nav>
 
       <div className="flex-1 overflow-auto px-3 py-3">
