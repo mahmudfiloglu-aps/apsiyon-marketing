@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 
 interface RepRow {
   rep: string
@@ -185,7 +186,11 @@ export default function AnalyticsClient() {
               <tbody>
                 {data.reps.map((row, i) => (
                   <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 font-medium text-gray-900">{row.rep}</td>
+                    <td className="py-2 font-medium text-gray-900">
+                      <Link href={'/analytics/rep?name=' + encodeURIComponent(row.rep)} className="hover:text-blue-600 hover:underline transition-colors">
+                        {row.rep}
+                      </Link>
+                    </td>
                     <td className="py-2 text-right text-gray-600">{row.total}</td>
                     <td className="py-2 text-right font-semibold text-green-700">{row.reeval}</td>
                     <td className="py-2 text-right text-orange-600">{row.wrong_record}</td>
