@@ -7,6 +7,9 @@ import EmailComposer from '@/components/EmailComposer'
 import ExportButton from '@/components/ExportButton'
 import FilterPanel, { applyFilters, EMPTY_FILTERS, type FilterState } from '@/components/FilterPanel'
 import type { AnalyzedLead, AnalysisResult, LeadRow, SuggestedStatus } from '@/types/lead'
+import type { ReanalysisContext } from '@/lib/buildPrompt'
+
+type CompanyHistory = Record<string, { analysisId: string; fileName: string; status: string; date: string }[]>
 
 const ACTIONABLE = ['Yeniden Değerlendir', 'Yanlış Kayıt', 'Yetersiz Not', 'Belirsiz'] as const
 
@@ -18,6 +21,10 @@ export default function ResultsClient() {
   const [overrides, setOverrides] = useState<Record<string, SuggestedStatus>>({})
   const [filter, setFilter] = useState('Tümü')
   const [panelFilters, setPanelFilters] = useState<FilterState>(EMPTY_FILTERS)
+  const [reanalyzing, setReanalyzing] = useState<Record<string, boolean>>({})
+  const [companyHistory, setCompanyHistory] = useState<CompanyHistory>({})
+  const [services, setServices] = useState<string[]>([])
+  const currentAnalysisId = useRef<string | null>(null)
   const [showCheckPass, setShowCheckPass] = useState(false)
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
@@ -26,16 +33,34 @@ export default function ResultsClient() {
   const abortRef = useRef<AbortController | null>(null)
   const pendingMeta = useRef<{ id: string; fileName: string; filteredCount: number; totalCount: number } | null>(null)
 
+  async function fetchCompanyHistory(loadedLeads: AnalyzedLead[], excludeId?: string) {
+    const companies = [...new Set(
+      loadedLeads.map((l) => l.lead['Hesap Adı']).filter(Boolean)
+    )]
+    if (!companies.length) return
+    try {
+      const res = await fetch('/api/company-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companies, excludeAnalysisId: excludeId }),
+      })
+      if (res.ok) setCompanyHistory(await res.json())
+    } catch {}
+  }
+
   useEffect(() => {
     const historyId = searchParams.get('id')
 
     // Geçmişten yükleme
     if (historyId) {
+      currentAnalysisId.current = historyId
       fetch(`/api/analyses/${historyId}`)
         .then((r) => r.json())
         .then((data) => {
           if (data.analysis?.results) {
-            setLeads(data.analysis.results as AnalyzedLead[])
+            const loaded = data.analysis.results as AnalyzedLead[]
+            setLeads(loaded)
+            fetchCompanyHistory(loaded, historyId)
           } else {
             router.replace('/')
           }
@@ -49,7 +74,7 @@ export default function ResultsClient() {
     const pending = sessionStorage.getItem('pendingAnalysis')
     if (pending) {
       sessionStorage.removeItem('pendingAnalysis')
-      const { leads: rawLeads, services, recordId, fileName, filteredCount, totalCount } = JSON.parse(pending) as {
+      const { leads: rawLeads, services: pendingServices, recordId, fileName, filteredCount, totalCount } = JSON.parse(pending) as {
         leads: LeadRow[]
         services: string[]
         recordId: string
@@ -58,11 +83,13 @@ export default function ResultsClient() {
         totalCount: number
       }
       pendingMeta.current = { id: recordId, fileName, filteredCount, totalCount }
+      currentAnalysisId.current = recordId
+      setServices(pendingServices)
       setLeads(rawLeads.map((lead) => ({ lead })))
       setProgress({ done: 0, total: rawLeads.length })
       setLoading(false)
       setAnalyzing(true)
-      startStreaming(rawLeads, services)
+      startStreaming(rawLeads, pendingServices)
       return
     }
 
@@ -129,6 +156,7 @@ export default function ResultsClient() {
       }
     } finally {
       setAnalyzing(false)
+      fetchCompanyHistory(accumulated, currentAnalysisId.current ?? undefined)
       // DB'ye kaydet
       const meta = pendingMeta.current
       if (meta && accumulated.some((l) => l.analysisResult)) {
@@ -158,6 +186,48 @@ export default function ResultsClient() {
       }
       return { ...prev, [leadId]: decision }
     })
+  }
+
+  async function handleReanalyze(item: AnalyzedLead, services: string[]) {
+    const id = item.lead['ID']
+    if (reanalyzing[id]) return
+    setReanalyzing((p) => ({ ...p, [id]: true }))
+
+    const reanalysis: ReanalysisContext | undefined = item.analysisResult
+      ? { previousStatus: item.analysisResult.suggestedStatus, previousReason: item.analysisResult.reason }
+      : undefined
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: [item.lead], services, reanalysis }),
+      })
+      if (!res.ok) return
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n'); buf = lines.pop()!
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const { result } = JSON.parse(line) as { result?: AnalysisResult }
+            if (result) {
+              setLeads((prev) => prev.map((l) =>
+                l.lead['ID'] === id ? { ...l, analysisResult: result, analysisError: undefined } : l
+              ))
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+    finally {
+      setReanalyzing((p) => { const n = { ...p }; delete n[id]; return n })
+    }
   }
 
   const handleOverride = (leadId: string, status: SuggestedStatus | undefined) => {
@@ -319,9 +389,12 @@ export default function ResultsClient() {
             item={item}
             override={overrides[item.lead['ID']]}
             decision={decisions[item.lead['ID']]}
+            isReanalyzing={!!reanalyzing[item.lead['ID']]}
+            companyHistory={companyHistory[item.lead['Hesap Adı']] ?? []}
             onConfirm={() => handleDecision(item.lead['ID'], 'confirmed')}
             onReject={() => handleDecision(item.lead['ID'], 'rejected')}
             onOverride={(s) => handleOverride(item.lead['ID'], s)}
+            onReanalyze={() => handleReanalyze(item, services)}
           />
         ))}
       </div>

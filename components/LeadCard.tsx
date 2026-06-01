@@ -42,16 +42,26 @@ function QualityBadge({ score }: { score: number }) {
   )
 }
 
+interface CompanyRecord {
+  analysisId: string
+  fileName: string
+  status: string
+  date: string
+}
+
 interface Props {
   item: AnalyzedLead
   override?: SuggestedStatus
   decision?: 'confirmed' | 'rejected'
+  isReanalyzing?: boolean
+  companyHistory?: CompanyRecord[]
   onConfirm: () => void
   onReject: () => void
   onOverride: (status: SuggestedStatus | undefined) => void
+  onReanalyze: () => void
 }
 
-export default function LeadCard({ item, override, decision, onConfirm, onReject, onOverride }: Props) {
+export default function LeadCard({ item, override, decision, isReanalyzing, companyHistory = [], onConfirm, onReject, onOverride, onReanalyze }: Props) {
   const { lead, analysisResult, analysisError } = item
   const [showMove, setShowMove] = useState(false)
 
@@ -130,6 +140,26 @@ export default function LeadCard({ item, override, decision, onConfirm, onReject
           </div>
         )}
       </div>
+
+      {/* Company history warning */}
+      {companyHistory.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+          <p className="text-xs font-medium text-amber-700 mb-1">
+            ⚠ Bu şirket daha önce {companyHistory.length} analizde görüldü
+          </p>
+          <div className="space-y-0.5">
+            {companyHistory.slice(0, 3).map((h, i) => (
+              <p key={i} className="text-xs text-amber-600">
+                {new Date(h.date).toLocaleDateString('tr-TR')} · {h.fileName} ·{' '}
+                <span className="font-medium">{h.status}</span>
+              </p>
+            ))}
+            {companyHistory.length > 3 && (
+              <p className="text-xs text-amber-500">+{companyHistory.length - 3} daha...</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Sales note */}
       {lead['Son Aktivite Açıklaması'] && (
@@ -231,6 +261,16 @@ export default function LeadCard({ item, override, decision, onConfirm, onReject
         >
           ✗ AI Hatalı
         </button>
+        {analysisResult && (
+          <button
+            onClick={onReanalyze}
+            disabled={isReanalyzing}
+            title="Daha derin analiz — AI'ya önceki kararı da göndererek yeniden değerlendirt"
+            className="px-3 py-2 rounded-xl text-sm font-medium transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          >
+            {isReanalyzing ? '⏳' : '🔄'}
+          </button>
+        )}
       </div>
     </div>
   )

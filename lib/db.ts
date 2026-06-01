@@ -95,3 +95,41 @@ export async function deleteAnalysis(id: string, userId: string) {
   const sql = getDb()
   await sql`DELETE FROM analyses WHERE id = ${id} AND user_id = ${userId}`
 }
+
+export async function getCompanyHistory(
+  userId: string,
+  companies: string[],
+  excludeAnalysisId?: string
+) {
+  if (!companies.length) return []
+  const sql = getDb()
+  const rows = await sql`
+    SELECT
+      a.id,
+      a.file_name,
+      a.created_at,
+      elem->'lead'->>'Hesap Adı' AS company_name,
+      elem->'analysisResult'->>'suggestedStatus' AS status
+    FROM analyses a,
+      jsonb_array_elements(a.results) AS elem
+    WHERE a.user_id = ${userId}
+      AND (${excludeAnalysisId ?? null}::text IS NULL OR a.id != ${excludeAnalysisId ?? ''})
+      AND elem->'lead'->>'Hesap Adı' = ANY(${companies})
+    ORDER BY a.created_at DESC
+    LIMIT 200
+  `
+  // Group by company name
+  const map: Record<string, { analysisId: string; fileName: string; status: string; date: string }[]> = {}
+  for (const row of rows) {
+    const name = row.company_name as string
+    if (!name) continue
+    if (!map[name]) map[name] = []
+    map[name].push({
+      analysisId: row.id as string,
+      fileName: row.file_name as string,
+      status: (row.status as string) || 'Bilinmiyor',
+      date: row.created_at as string,
+    })
+  }
+  return map
+}

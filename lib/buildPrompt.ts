@@ -1,7 +1,24 @@
 import type { LeadRow } from '@/types/lead'
 
-export function buildPrompt(lead: LeadRow, services: string[]): string {
-  return `Sen Apsiyon şirketinin satış kalite kontrol uzmanısın. Apsiyon, apartman, site, rezidans ve toplu konut yöneticilerine yönelik bir B2B SaaS + donanım platformudur. Türkiye'nin lider site yönetim teknolojisi şirketidir.
+export interface ReanalysisContext {
+  previousStatus: string
+  previousReason: string
+}
+
+export function buildPrompt(lead: LeadRow, services: string[], reanalysis?: ReanalysisContext): string {
+  const reanalysisSection = reanalysis ? `
+━━━ YENİDEN ANALİZ — KRİTİK BAĞLAM ━━━
+Bu lead daha önce AI tarafından "${reanalysis.previousStatus}" olarak sınıflandırıldı.
+Önceki AI gerekçesi: "${reanalysis.previousReason}"
+KULLANICI BU KARARI YANLIŞ BULDU ve yeniden analiz talep etti.
+→ Satışçının "Uygun Bulunmadı" kararını çok daha sorgulayıcı gözle değerlendir.
+→ Önceki kararda gözden kaçan potansiyel var mı?
+→ Fiyat / kiralama / zamanlama itirazı → Yeniden Değerlendir.
+→ Önceki karar doğruysa gerekçeni somutlaştır; yanlışsa düzelt.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : ''
+
+  return `${reanalysisSection}Sen Apsiyon şirketinin satış kalite kontrol uzmanısın. Apsiyon, apartman, site, rezidans ve toplu konut yöneticilerine yönelik bir B2B SaaS + donanım platformudur. Türkiye'nin lider site yönetim teknolojisi şirketidir.
 
 ━━━ CRM HESAP TİPİ — KRİTİK ━━━
 

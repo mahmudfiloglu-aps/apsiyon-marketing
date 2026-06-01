@@ -2,16 +2,21 @@ import { NextRequest } from 'next/server'
 import { analyzeLead } from '@/lib/analyzeLeads'
 import { detectJunkLead } from '@/lib/detectJunkLead'
 import type { LeadRow } from '@/types/lead'
+import type { ReanalysisContext } from '@/lib/buildPrompt'
 
 export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
-  const { leads, services }: { leads: LeadRow[]; services: string[] } = await req.json()
+  const { leads, services, reanalysis }: {
+    leads: LeadRow[]
+    services: string[]
+    reanalysis?: ReanalysisContext
+  } = await req.json()
 
   if (!leads?.length) return Response.json({ error: 'Lead listesi boş' }, { status: 400 })
   if (!services?.length) return Response.json({ error: 'Hizmet listesi boş' }, { status: 400 })
 
-  console.log(`[analyze] ${leads.length} lead, paralel işleniyor`)
+  console.log(`[analyze] ${leads.length} lead${reanalysis ? ' (yeniden analiz)' : ''}, paralel işleniyor`)
 
   const encoder = new TextEncoder()
   const CONCURRENCY = 10
@@ -28,10 +33,11 @@ export async function POST(req: NextRequest) {
           while (active < CONCURRENCY && queue.length > 0) {
             const lead = queue.shift()!
             active++
-            const junk = detectJunkLead(lead)
+            // Yeniden analiz isteklerinde junk kontrolü atla
+            const junk = reanalysis ? null : detectJunkLead(lead)
             const task = junk
               ? Promise.resolve(junk)
-              : analyzeLead(lead, services)
+              : analyzeLead(lead, services, 3, reanalysis)
             task
               .then((result) => {
                 if (junk) console.log(`[analyze] junk skip: ${lead['ID']} — ${lead['İlgili Kişi']}`)
