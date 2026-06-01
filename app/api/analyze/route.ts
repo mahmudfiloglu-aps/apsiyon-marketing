@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { analyzeLead } from '@/lib/analyzeLeads'
 import { detectJunkLead } from '@/lib/detectJunkLead'
 import { getSession } from '@/lib/auth'
-import { getRejectedExamples } from '@/lib/db'
+import { getRejectedExamples, getCustomRules } from '@/lib/db'
 import type { LeadRow } from '@/types/lead'
 import type { ReanalysisContext, RejectedExample } from '@/lib/buildPrompt'
 
@@ -19,14 +19,22 @@ export async function POST(req: NextRequest) {
   if (!services?.length) return Response.json({ error: 'Hizmet listesi boş' }, { status: 400 })
 
   let rejectedExamples: RejectedExample[] = []
+  let customRules: string[] = []
   if (!reanalysis) {
     try {
       const session = await getSession()
-      if (session) rejectedExamples = await getRejectedExamples(session.userId, 10)
+      if (session) {
+        const [examples, rules] = await Promise.all([
+          getRejectedExamples(session.userId, 10),
+          getCustomRules(session.userId),
+        ])
+        rejectedExamples = examples
+        customRules = rules.filter((r) => r.is_active).map((r) => r.rule_text as string)
+      }
     } catch {}
   }
 
-  console.log(`[analyze] ${leads.length} lead${reanalysis ? ' (yeniden analiz)' : ''}, ${rejectedExamples.length} red örneği, paralel işleniyor`)
+  console.log(`[analyze] ${leads.length} lead${reanalysis ? ' (yeniden analiz)' : ''}, ${rejectedExamples.length} red örneği, ${customRules.length} özel kural, paralel işleniyor`)
 
   const encoder = new TextEncoder()
   const CONCURRENCY = 10
@@ -47,7 +55,7 @@ export async function POST(req: NextRequest) {
             const junk = reanalysis ? null : detectJunkLead(lead)
             const task = junk
               ? Promise.resolve(junk)
-              : analyzeLead(lead, services, 3, reanalysis, rejectedExamples)
+              : analyzeLead(lead, services, 3, reanalysis, rejectedExamples, customRules)
             task
               .then((result) => {
                 if (junk) console.log(`[analyze] junk skip: ${lead['ID']} — ${lead['İlgili Kişi']}`)

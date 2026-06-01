@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AnalyzedLead } from '@/types/lead'
 
 export interface FilterState {
@@ -71,6 +71,28 @@ interface Props {
 
 export default function FilterPanel({ leads, filters, onChange, resultCount }: Props) {
   const [open, setOpen] = useState(false)
+  const [presets, setPresets] = useState<{ name: string; filters: FilterState }[]>([])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('filterPresets')
+      if (saved) setPresets(JSON.parse(saved))
+    } catch {}
+  }, [])
+
+  const savePreset = () => {
+    const name = window.prompt('Preset adı:')
+    if (!name?.trim()) return
+    const next = [...presets, { name: name.trim(), filters }]
+    setPresets(next)
+    try { localStorage.setItem('filterPresets', JSON.stringify(next)) } catch {}
+  }
+
+  const deletePreset = (i: number) => {
+    const next = presets.filter((_, idx) => idx !== i)
+    setPresets(next)
+    try { localStorage.setItem('filterPresets', JSON.stringify(next)) } catch {}
+  }
 
   const options = useMemo(() => ({
     campaigns: unique(leads.map((l) => l.lead['Başvuru Kampanyası'])),
@@ -219,6 +241,37 @@ export default function FilterPanel({ leads, filters, onChange, resultCount }: P
                   {v === 0 ? 'Tümü' : `★ ${v}+`}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Presets */}
+          <div className="col-span-2 md:col-span-3 xl:col-span-5 border-t border-gray-100 pt-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-gray-400">Presetler:</span>
+              {presets.map((p, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  <button
+                    onClick={() => onChange(p.filters)}
+                    className="text-xs px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                  >
+                    {p.name}
+                  </button>
+                  <button
+                    onClick={() => deletePreset(i)}
+                    className="text-xs text-gray-300 hover:text-red-400 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              {activeCount > 0 && (
+                <button
+                  onClick={savePreset}
+                  className="text-xs px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+                >
+                  💾 Kaydet
+                </button>
+              )}
             </div>
           </div>
         </div>

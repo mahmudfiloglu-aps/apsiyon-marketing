@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
 
   const { analysisId, decisions } = await req.json() as {
     analysisId: string
-    decisions: { leadId: string; aiStatus: string; userDecision: string }[]
+    decisions: { leadId: string; aiStatus: string; userDecision: string; userNote?: string }[]
   }
 
   if (!analysisId || !decisions?.length) return Response.json({ ok: true })

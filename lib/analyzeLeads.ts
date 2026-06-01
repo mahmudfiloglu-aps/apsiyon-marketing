@@ -33,9 +33,10 @@ export async function analyzeLead(
   services: string[],
   retries = 3,
   reanalysis?: ReanalysisContext,
-  rejectedExamples?: RejectedExample[]
+  rejectedExamples?: RejectedExample[],
+  customRules?: string[]
 ): Promise<AnalysisResult> {
-  const prompt = buildPrompt(lead, services, reanalysis, rejectedExamples)
+  const prompt = buildPrompt(lead, services, reanalysis, rejectedExamples, customRules)
   const modelName = process.env.GEMINI_CLASSIFICATION_MODEL || 'gemini-2.5-flash'
 
   for (let attempt = 0; attempt < retries; attempt++) {

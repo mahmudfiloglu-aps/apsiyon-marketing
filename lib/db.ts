@@ -106,26 +106,29 @@ export async function createDecisionsTable() {
       lead_id       VARCHAR(255) NOT NULL,
       ai_status     VARCHAR(100),
       user_decision VARCHAR(20)  NOT NULL,
+      user_note     VARCHAR(500),
       created_at    TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (analysis_id, lead_id)
     )
   `
+  await sql`ALTER TABLE lead_decisions ADD COLUMN IF NOT EXISTS user_note VARCHAR(500)`.catch(() => {})
 }
 
 export async function saveDecisions(
   analysisId: string,
-  decisions: { leadId: string; aiStatus: string; userDecision: string }[]
+  decisions: { leadId: string; aiStatus: string; userDecision: string; userNote?: string }[]
 ) {
   if (!decisions.length) return
   const sql = getDb()
   await createDecisionsTable()
   for (const d of decisions) {
     await sql`
-      INSERT INTO lead_decisions (analysis_id, lead_id, ai_status, user_decision)
-      VALUES (${analysisId}, ${d.leadId}, ${d.aiStatus}, ${d.userDecision})
+      INSERT INTO lead_decisions (analysis_id, lead_id, ai_status, user_decision, user_note)
+      VALUES (${analysisId}, ${d.leadId}, ${d.aiStatus}, ${d.userDecision}, ${d.userNote ?? null})
       ON CONFLICT (analysis_id, lead_id) DO UPDATE
         SET user_decision = EXCLUDED.user_decision,
             ai_status     = EXCLUDED.ai_status,
+            user_note     = ${d.userNote ?? null},
             created_at    = NOW()
     `
   }
@@ -153,7 +156,8 @@ export async function getRejectedExamples(userId: string, limit = 10) {
       elem->'lead'->>'Başvuru Kampanyası'       AS campaign,
       elem->'lead'->>'Kayıt Tipi'               AS record_type,
       d.ai_status,
-      elem->'analysisResult'->>'reason'          AS ai_reason
+      elem->'analysisResult'->>'reason'          AS ai_reason,
+      d.user_note AS user_note
     FROM lead_decisions d
     JOIN analyses a ON d.analysis_id = a.id,
          jsonb_array_elements(a.results) AS elem
@@ -164,7 +168,29 @@ export async function getRejectedExamples(userId: string, limit = 10) {
     ORDER BY d.created_at DESC
     LIMIT ${limit}
   `
-  return rows as { note: string; campaign: string; record_type: string; ai_status: string; ai_reason: string }[]
+  return rows as { note: string; campaign: string; record_type: string; ai_status: string; ai_reason: string; user_note: string | null }[]
+}
+
+// ── Rep Leads ──────────────────────────────────────────
+
+export async function getRepLeads(userId: string, repName: string) {
+  const sql = getDb()
+  const rows = await sql`
+    SELECT
+      a.id AS analysis_id,
+      a.file_name,
+      a.created_at,
+      elem->'lead' AS lead,
+      elem->'analysisResult' AS analysis_result
+    FROM analyses a,
+      jsonb_array_elements(a.results) AS elem
+    WHERE a.user_id = ${userId}
+      AND elem->'lead'->>'Satış Temsilcisi' = ${repName}
+      AND elem->'analysisResult' IS NOT NULL
+    ORDER BY a.created_at DESC
+    LIMIT 200
+  `
+  return rows
 }
 
 // ── Analytics ──────────────────────────────────────────
@@ -245,4 +271,52 @@ export async function getCompanyHistory(
     })
   }
   return map
+}
+
+// ── Custom Rules ───────────────────────────────────────
+
+export async function createCustomRulesTable() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS custom_rules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      rule_text TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `
+}
+
+export async function getCustomRules(userId: string) {
+  const sql = getDb()
+  await createCustomRulesTable()
+  const rows = await sql`
+    SELECT id, rule_text, is_active, created_at
+    FROM custom_rules
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+  `
+  return rows
+}
+
+export async function saveCustomRule(userId: string, ruleText: string) {
+  const sql = getDb()
+  await createCustomRulesTable()
+  const result = await sql`
+    INSERT INTO custom_rules (user_id, rule_text)
+    VALUES (${userId}, ${ruleText})
+    RETURNING id, rule_text, is_active, created_at
+  `
+  return result[0]
+}
+
+export async function deleteCustomRule(userId: string, id: string) {
+  const sql = getDb()
+  await sql`DELETE FROM custom_rules WHERE id = ${id} AND user_id = ${userId}`
+}
+
+export async function toggleCustomRule(userId: string, id: string, isActive: boolean) {
+  const sql = getDb()
+  await sql`UPDATE custom_rules SET is_active = ${isActive} WHERE id = ${id} AND user_id = ${userId}`
 }

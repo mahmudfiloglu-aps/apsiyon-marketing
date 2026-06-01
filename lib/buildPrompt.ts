@@ -11,9 +11,10 @@ export interface RejectedExample {
   record_type: string
   ai_status: string
   ai_reason: string
+  userNote?: string | null
 }
 
-export function buildPrompt(lead: LeadRow, services: string[], reanalysis?: ReanalysisContext, rejectedExamples?: RejectedExample[]): string {
+export function buildPrompt(lead: LeadRow, services: string[], reanalysis?: ReanalysisContext, rejectedExamples?: RejectedExample[], customRules?: string[]): string {
   const feedbackSection = (rejectedExamples && rejectedExamples.length > 0) ? `
 ━━━ KULLANICI GERİBİLDİRİMİ — AI'NIN YANILDIĞI ÖRNEKLER ━━━
 Aşağıdaki leadlerde AI hatalı karar verdi. Bu kararları kullanıcı reddetti.
@@ -22,10 +23,16 @@ Aynı kalıpları tekrarlamaktan kaçın:
 ${rejectedExamples.map((ex, i) => `[${i + 1}] AI "${ex.ai_status}" demişti → YANLIŞ
    Kampanya: ${ex.campaign || '—'} | Kayıt: ${ex.record_type || '—'}
    Satışçı Notu: "${(ex.note || '—').slice(0, 120)}"
-   AI Gerekçesi: "${(ex.ai_reason || '—').slice(0, 150)}"`).join('\n\n')}
+   AI Gerekçesi: "${(ex.ai_reason || '—').slice(0, 150)}"${ex.userNote ? `\n   Kullanıcı Notu: "${ex.userNote}"` : ''}`).join('\n\n')}
 
 → Bu örneklerdeki hatayı anlayarak şimdiki lead için daha isabetli karar ver.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : ''
+
+  const customRulesSection = (customRules && customRules.length > 0) ? `
+━━━ ÖZEL KURALLAR (YÖNETİCİ TARAFINDAN TANIMLANMIŞ) ━━━
+${customRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ` : ''
 
   const reanalysisSection = reanalysis ? `
@@ -40,7 +47,7 @@ KULLANICI BU KARARI YANLIŞ BULDU ve yeniden analiz talep etti.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ` : ''
 
-  return `${feedbackSection}${reanalysisSection}Sen Apsiyon şirketinin satış kalite kontrol uzmanısın. Apsiyon, apartman, site, rezidans ve toplu konut yöneticilerine yönelik bir B2B SaaS + donanım platformudur. Türkiye'nin lider site yönetim teknolojisi şirketidir.
+  return `${feedbackSection}${customRulesSection}${reanalysisSection}Sen Apsiyon şirketinin satış kalite kontrol uzmanısın. Apsiyon, apartman, site, rezidans ve toplu konut yöneticilerine yönelik bir B2B SaaS + donanım platformudur. Türkiye'nin lider site yönetim teknolojisi şirketidir.
 
 ━━━ CRM HESAP TİPİ — KRİTİK ━━━
 

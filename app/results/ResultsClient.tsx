@@ -19,6 +19,7 @@ export default function ResultsClient() {
   const searchParams = useSearchParams()
   const [leads, setLeads] = useState<AnalyzedLead[]>([])
   const [decisions, setDecisions] = useState<Record<string, 'confirmed' | 'rejected'>>({})
+  const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({})
   const [overrides, setOverrides] = useState<Record<string, SuggestedStatus>>({})
   const [filter, setFilter] = useState('Tümü')
   const [panelFilters, setPanelFilters] = useState<FilterState>(EMPTY_FILTERS)
@@ -182,7 +183,8 @@ export default function ResultsClient() {
 
   const persistDecisions = useCallback((
     decisionsMap: Record<string, 'confirmed' | 'rejected'>,
-    leadsArr: AnalyzedLead[]
+    leadsArr: AnalyzedLead[],
+    notesMap?: Record<string, string>
   ) => {
     if (saveDecisionsDebounced.current) clearTimeout(saveDecisionsDebounced.current)
     saveDecisionsDebounced.current = setTimeout(() => {
@@ -194,6 +196,7 @@ export default function ResultsClient() {
           leadId,
           aiStatus: lead?.analysisResult?.suggestedStatus ?? '',
           userDecision,
+          userNote: notesMap?.[leadId] ?? undefined,
         }
       })
       if (!payload.length) return
@@ -205,12 +208,23 @@ export default function ResultsClient() {
     }, 1500)
   }, [])
 
+  const handleDecisionNote = (leadId: string, note: string) => {
+    setDecisionNotes((prev) => {
+      const next = { ...prev, [leadId]: note }
+      if (saveDecisionsDebounced.current) clearTimeout(saveDecisionsDebounced.current)
+      saveDecisionsDebounced.current = setTimeout(() => {
+        persistDecisions(decisions, leads, next)
+      }, 1500)
+      return next
+    })
+  }
+
   const handleDecision = (leadId: string, decision: 'confirmed' | 'rejected') => {
     setDecisions((prev) => {
       const next = prev[leadId] === decision
         ? (({ [leadId]: _, ...rest }) => rest)(prev)
         : { ...prev, [leadId]: decision }
-      persistDecisions(next, leads)
+      persistDecisions(next, leads, decisionNotes)
       return next
     })
   }
@@ -219,7 +233,7 @@ export default function ResultsClient() {
     setDecisions((prev) => {
       const next = { ...prev }
       ids.forEach((id) => { next[id] = decision })
-      persistDecisions(next, leads)
+      persistDecisions(next, leads, decisionNotes)
       return next
     })
   }
@@ -439,12 +453,14 @@ export default function ResultsClient() {
             item={item}
             override={overrides[item.lead['ID']]}
             decision={decisions[item.lead['ID']]}
+            decisionNote={decisionNotes[item.lead['ID']]}
             isReanalyzing={!!reanalyzing[item.lead['ID']]}
             companyHistory={companyHistory[item.lead['Hesap Adı']] ?? []}
             onConfirm={() => handleDecision(item.lead['ID'], 'confirmed')}
             onReject={() => handleDecision(item.lead['ID'], 'rejected')}
             onOverride={(s) => handleOverride(item.lead['ID'], s)}
             onReanalyze={() => handleReanalyze(item, services)}
+            onDecisionNote={(note) => handleDecisionNote(item.lead['ID'], note)}
           />
         ))}
       </div>
