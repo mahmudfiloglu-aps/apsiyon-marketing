@@ -62,6 +62,7 @@ export async function analyzeLead(
         confidence: parsed.confidence as AnalysisResult['confidence'],
         reason: parsed.reason as string,
         matchedServices: (parsed.matchedServices as string[]) || [],
+        qualityScore: typeof parsed.qualityScore === 'number' ? Math.min(10, Math.max(1, parsed.qualityScore)) : 5,
       }
     } catch (err) {
       const is429 =

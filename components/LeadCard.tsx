@@ -1,6 +1,7 @@
 'use client'
 
-import type { AnalyzedLead } from '@/types/lead'
+import { useState } from 'react'
+import type { AnalyzedLead, SuggestedStatus } from '@/types/lead'
 
 const STATUS_BG: Record<string, string> = {
   'Yeniden Değerlendir': 'bg-green-50 border-green-200',
@@ -24,17 +25,39 @@ const CONF_STYLE: Record<string, string> = {
   Düşük: 'text-gray-600 bg-gray-100',
 }
 
+const ALL_STATUSES: SuggestedStatus[] = [
+  'Yeniden Değerlendir', 'Yanlış Kayıt', 'Yetersiz Not', 'Belirsiz', 'Check Pass',
+]
+
+function QualityBadge({ score }: { score: number }) {
+  const color =
+    score >= 8 ? 'text-green-700 bg-green-100' :
+    score >= 6 ? 'text-blue-700 bg-blue-100' :
+    score >= 4 ? 'text-yellow-700 bg-yellow-100' :
+    'text-red-700 bg-red-100'
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${color}`} title="Lead kalite puanı (1-10)">
+      ★ {score}/10
+    </span>
+  )
+}
+
 interface Props {
   item: AnalyzedLead
+  override?: SuggestedStatus
   decision?: 'confirmed' | 'rejected'
   onConfirm: () => void
   onReject: () => void
+  onOverride: (status: SuggestedStatus | undefined) => void
 }
 
-export default function LeadCard({ item, decision, onConfirm, onReject }: Props) {
+export default function LeadCard({ item, override, decision, onConfirm, onReject, onOverride }: Props) {
   const { lead, analysisResult, analysisError } = item
-  const status = analysisResult?.suggestedStatus
-  const cardBg = status ? STATUS_BG[status] : 'bg-gray-50 border-gray-200'
+  const [showMove, setShowMove] = useState(false)
+
+  const effectiveStatus = override ?? analysisResult?.suggestedStatus
+  const cardBg = effectiveStatus ? STATUS_BG[effectiveStatus] : 'bg-gray-50 border-gray-200'
+  const isOverridden = !!override
 
   return (
     <div
@@ -56,18 +79,28 @@ export default function LeadCard({ item, decision, onConfirm, onReject }: Props)
             {lead['Hesap Adı'] || '—'} · {lead['Şehir'] || ''}
           </p>
         </div>
-        {status && (
+        {effectiveStatus && (
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <span className="text-sm font-medium whitespace-nowrap">
-              {STATUS_ICON[status]} {status}
-            </span>
-            {analysisResult?.confidence && (
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-medium ${CONF_STYLE[analysisResult.confidence]}`}
-              >
-                {analysisResult.confidence}
+            <div className="flex items-center gap-1.5">
+              {isOverridden && (
+                <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                  Manuel
+                </span>
+              )}
+              <span className="text-sm font-medium whitespace-nowrap">
+                {STATUS_ICON[effectiveStatus]} {effectiveStatus}
               </span>
-            )}
+            </div>
+            <div className="flex items-center gap-1">
+              {analysisResult?.confidence && !isOverridden && (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${CONF_STYLE[analysisResult.confidence]}`}>
+                  {analysisResult.confidence}
+                </span>
+              )}
+              {analysisResult?.qualityScore != null && (
+                <QualityBadge score={analysisResult.qualityScore} />
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -110,16 +143,17 @@ export default function LeadCard({ item, decision, onConfirm, onReject }: Props)
 
       {/* AI result */}
       {analysisResult && (
-        <div className="bg-white/70 rounded-lg px-3 py-2 mb-4">
-          <p className="text-xs text-gray-400 font-medium mb-1">AI Analizi</p>
+        <div className="bg-white/70 rounded-lg px-3 py-2 mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs text-gray-400 font-medium">
+              {isOverridden ? `AI Analizi (orijinal: ${analysisResult.suggestedStatus})` : 'AI Analizi'}
+            </p>
+          </div>
           <p className="text-sm text-gray-700">{analysisResult.reason}</p>
           {analysisResult.matchedServices.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
               {analysisResult.matchedServices.map((s, i) => (
-                <span
-                  key={i}
-                  className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"
-                >
+                <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                   {s}
                 </span>
               ))}
@@ -129,9 +163,50 @@ export default function LeadCard({ item, decision, onConfirm, onReject }: Props)
       )}
 
       {analysisError && (
-        <p className="text-xs text-red-500 mb-4 bg-red-50 px-2 py-1 rounded">
+        <p className="text-xs text-red-500 mb-3 bg-red-50 px-2 py-1 rounded">
           Analiz hatası: {analysisError}
         </p>
+      )}
+
+      {/* Move to category */}
+      {analysisResult && (
+        <div className="mb-3">
+          {showMove ? (
+            <div className="bg-white/80 rounded-xl p-2 border border-gray-200">
+              <p className="text-xs text-gray-500 mb-1.5 px-1">Kategoriye taşı:</p>
+              <div className="flex flex-wrap gap-1">
+                {ALL_STATUSES.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { onOverride(s === analysisResult.suggestedStatus && !isOverridden ? undefined : s); setShowMove(false) }}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                      effectiveStatus === s
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {STATUS_ICON[s]} {s}
+                  </button>
+                ))}
+                {isOverridden && (
+                  <button
+                    onClick={() => { onOverride(undefined); setShowMove(false) }}
+                    className="text-xs px-2.5 py-1 rounded-full border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    ↩ AI kararına dön
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowMove(true)}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors underline underline-offset-2"
+            >
+              ↕ Kategoriyi değiştir
+            </button>
+          )}
+        </div>
       )}
 
       {/* Actions */}

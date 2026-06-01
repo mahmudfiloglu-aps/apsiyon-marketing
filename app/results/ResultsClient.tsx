@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import LeadCard from '@/components/LeadCard'
 import EmailComposer from '@/components/EmailComposer'
 import ExportButton from '@/components/ExportButton'
-import type { AnalyzedLead, AnalysisResult, LeadRow } from '@/types/lead'
+import type { AnalyzedLead, AnalysisResult, LeadRow, SuggestedStatus } from '@/types/lead'
 
 const ACTIONABLE = ['Yeniden Değerlendir', 'Yanlış Kayıt', 'Yetersiz Not', 'Belirsiz'] as const
 
@@ -14,6 +14,7 @@ export default function ResultsClient() {
   const searchParams = useSearchParams()
   const [leads, setLeads] = useState<AnalyzedLead[]>([])
   const [decisions, setDecisions] = useState<Record<string, 'confirmed' | 'rejected'>>({})
+  const [overrides, setOverrides] = useState<Record<string, SuggestedStatus>>({})
   const [filter, setFilter] = useState('Tümü')
   const [showCheckPass, setShowCheckPass] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -157,22 +158,42 @@ export default function ResultsClient() {
     })
   }
 
-  const checkPassLeads = leads.filter((l) => l.analysisResult?.suggestedStatus === 'Check Pass')
-  const actionableLeads = leads.filter(
-    (l) => !l.analysisResult || l.analysisResult.suggestedStatus !== 'Check Pass'
-  )
-
-  const counts = {
-    'Yeniden Değerlendir': leads.filter((l) => l.analysisResult?.suggestedStatus === 'Yeniden Değerlendir').length,
-    'Yanlış Kayıt': leads.filter((l) => l.analysisResult?.suggestedStatus === 'Yanlış Kayıt').length,
-    'Yetersiz Not': leads.filter((l) => l.analysisResult?.suggestedStatus === 'Yetersiz Not').length,
-    Belirsiz: leads.filter((l) => l.analysisResult?.suggestedStatus === 'Belirsiz').length,
+  const handleOverride = (leadId: string, status: SuggestedStatus | undefined) => {
+    setOverrides((prev) => {
+      if (status === undefined) {
+        const next = { ...prev }
+        delete next[leadId]
+        return next
+      }
+      return { ...prev, [leadId]: status }
+    })
   }
 
+  const effectiveStatus = (l: AnalyzedLead) =>
+    overrides[l.lead['ID']] ?? l.analysisResult?.suggestedStatus
+
+  const checkPassLeads = leads.filter((l) => effectiveStatus(l) === 'Check Pass')
+  const actionableLeads = leads.filter((l) => {
+    const s = effectiveStatus(l)
+    return !s || s !== 'Check Pass'
+  })
+
+  const counts = {
+    'Yeniden Değerlendir': leads.filter((l) => effectiveStatus(l) === 'Yeniden Değerlendir').length,
+    'Yanlış Kayıt': leads.filter((l) => effectiveStatus(l) === 'Yanlış Kayıt').length,
+    'Yetersiz Not': leads.filter((l) => effectiveStatus(l) === 'Yetersiz Not').length,
+    Belirsiz: leads.filter((l) => effectiveStatus(l) === 'Belirsiz').length,
+  }
+
+  const scoredLeads = leads.filter((l) => l.analysisResult?.qualityScore != null)
+  const avgQuality = scoredLeads.length
+    ? Math.round((scoredLeads.reduce((sum, l) => sum + (l.analysisResult!.qualityScore), 0) / scoredLeads.length) * 10) / 10
+    : null
+
   const displayLeads = showCheckPass ? leads : actionableLeads
-  const filtered = displayLeads.filter(({ analysisResult }) => {
+  const filtered = displayLeads.filter((l) => {
     if (filter === 'Tümü') return true
-    return analysisResult?.suggestedStatus === filter
+    return effectiveStatus(l) === filter
   })
 
   if (loading) {
@@ -191,6 +212,11 @@ export default function ResultsClient() {
           <p className="text-sm text-gray-500 mt-1">
             {leads.length} lead · {actionableLeads.filter(l => l.analysisResult).length} aksiyon ·{' '}
             {Object.keys(decisions).length} değerlendirildi
+            {avgQuality != null && (
+              <span className={`ml-2 font-medium ${avgQuality >= 7 ? 'text-green-600' : avgQuality >= 5 ? 'text-yellow-600' : 'text-red-500'}`}>
+                · ★ Ort. {avgQuality}/10
+              </span>
+            )}
           </p>
         </div>
         <div className="flex gap-3">
@@ -208,7 +234,7 @@ export default function ResultsClient() {
           >
             ← Yeni Analiz
           </button>
-          <ExportButton leads={leads} />
+          <ExportButton leads={leads} overrides={overrides} />
         </div>
       </div>
 
@@ -282,9 +308,11 @@ export default function ResultsClient() {
           <LeadCard
             key={i}
             item={item}
+            override={overrides[item.lead['ID']]}
             decision={decisions[item.lead['ID']]}
             onConfirm={() => handleDecision(item.lead['ID'], 'confirmed')}
             onReject={() => handleDecision(item.lead['ID'], 'rejected')}
+            onOverride={(s) => handleOverride(item.lead['ID'], s)}
           />
         ))}
       </div>

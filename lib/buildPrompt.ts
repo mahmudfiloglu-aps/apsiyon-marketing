@@ -110,7 +110,10 @@ KESİN KURALLAR:
 4. Site sakini/daire sahibi = otomatik geçersiz değil; yönetici bağlantısı/iletme niyeti varsa değerli.
 5. "Aradım ulaşamadım" gibi salt süreç notu → Yetersiz Not; karar için yeterli içerik yok.
 6. Akbank kampanyasından gelen → banka şubesi değil, Akbank üzerinden ulaşılan site yöneticisi profilinde değerlendir.
-7. "Kiralama maliyeti çok fazla" → bütçe itirazı, ürüne ilgi var → Yeniden Değerlendir (tamamen reddetme).
+7. FİYAT / KİRALAMA REDDİ = LEAD KALİTE SORUNU DEĞİL, SATIŞ SORUNU:
+   "Kiralama istemiyoruz", "çok pahalı", "bütçemiz yok", "şu an uygun değil" → lead doğru hedef kitlede, ihtiyaç var ama karar verilmemiş → "Yeniden Değerlendir".
+   Fiyat veya kiralama modeli nedeniyle reddedilen lead'i asla Check Pass veya Yanlış Kayıt yapma.
+8. KABA/ANLAMSIZ RED: Satışçı notu sadece "istemedi", "kapattı", "ilgilenmedi" gibi içerik sıfır notlarsa → "Yetersiz Not". Gerçek kaba reddi (küfür, hakaret) → "Yanlış Kayıt".
 
 KARAR KRİTERLERİ:
 
@@ -148,7 +151,14 @@ Yanıtını SADECE şu JSON formatında ver, başka hiçbir şey yazma:
   "suggestedStatus": "Yeniden Değerlendir" | "Yanlış Kayıt" | "Yetersiz Not" | "Belirsiz" | "Check Pass",
   "confidence": "Yüksek" | "Orta" | "Düşük",
   "reason": "max 2 cümle, Türkçe, somut gerekçe — hangi ürün için değerlendirme yapıldığını belirt",
-  "matchedServices": ["${services.join('", "')}"]
+  "matchedServices": ["${services.join('", "')}"],
+  "qualityScore": 1-10
 }
+QUALITY SCORE kriteri (satış başarısından bağımsız, sadece lead kalitesi):
+9-10: Doğru hedef kitle, net ihtiyaç, açık iletişim
+7-8: Doğru hedef kitle, ihtiyaç var, timing/bütçe itirazı
+5-6: Muhtemelen doğru hedef, ihtiyaç belirsiz
+3-4: Zayıf sinyal, hedef kitle belirsiz, içerik az
+1-2: Yanlış hedef, junk, alakasız sektör
 Not: matchedServices sadece bu listeden seçilecek: ${services.map(s => `"${s}"`).join(', ')}`
 }

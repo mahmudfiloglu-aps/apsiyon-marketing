@@ -18,6 +18,7 @@ function junkResult(reason: string): AnalysisResult {
     confidence: 'Yüksek',
     reason,
     matchedServices: [],
+    qualityScore: 1,
   }
 }
 

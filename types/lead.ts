@@ -15,14 +15,17 @@ export type LeadRow = {
   [key: string]: string
 }
 
+export type SuggestedStatus = 'Yeniden Değerlendir' | 'Yanlış Kayıt' | 'Yetersiz Not' | 'Belirsiz' | 'Check Pass'
+
 export type AnalysisResult = {
   leadId: string
   originalStatus: 'Uygun Bulunmadı'
   originalDetail: string
-  suggestedStatus: 'Yeniden Değerlendir' | 'Yanlış Kayıt' | 'Yetersiz Not' | 'Belirsiz' | 'Check Pass'
+  suggestedStatus: SuggestedStatus
   confidence: 'Yüksek' | 'Orta' | 'Düşük'
   reason: string
   matchedServices: string[]
+  qualityScore: number
 }
 
 export type AnalyzedLead = {
