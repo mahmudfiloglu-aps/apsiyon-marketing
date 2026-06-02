@@ -94,21 +94,26 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
     import('papaparse').then(({ default: Papa }) => {
       const reader = new FileReader()
       reader.onload = (e) => {
-        const text = e.target?.result as string
-        const firstLine = text.split('\n')[0].trim()
-        let csvText = text
-        // Google Ads "Kampanya raporu" exports have 2 metadata rows before the real headers
-        if (firstLine === 'Kampanya raporu') {
-          const lines = text.split('\n')
-          const headerIdx = lines.findIndex((l, i) => i >= 2 && l.includes('Kampanya durumu'))
+        // Strip BOM and normalise line endings
+        const raw = (e.target?.result as string).replace(/^﻿/, '')
+        const lines = raw.split(/\r?\n/)
+        const firstLine = lines[0].trim()
+
+        let csvText = raw
+        // Google Ads "Kampanya raporu" — first two rows are title + date range
+        if (/kampanya raporu/i.test(firstLine)) {
+          const headerIdx = lines.findIndex((l, i) => i >= 1 && /kampanya durumu/i.test(l))
           csvText = lines.slice(headerIdx >= 0 ? headerIdx : 2).join('\n')
         }
+
         Papa.parse(csvText, {
-          header: true, skipEmptyLines: true,
+          header: true,
+          skipEmptyLines: true,
           complete: (r) => {
-            const rows = (r.data as Record<string, string>[])
-              .filter((row) => !String(row['Kampanya'] ?? '').startsWith('Toplam:'))
-              .filter((row) => !String(row['Kampanya durumu'] ?? '').startsWith('Toplam:'))
+            const rows = (r.data as Record<string, string>[]).filter((row) => {
+              const camp = String(row['Kampanya'] ?? row['Kampanya Adı'] ?? '')
+              return !camp.startsWith('Toplam') && camp !== ''
+            })
             resolve(rows)
           },
           error: reject,
@@ -172,12 +177,12 @@ interface AdsMetrics {
 }
 
 function buildGoogleMetrics(rows: Record<string, string>[]): AdsMetrics[] {
-  // Auto-detect format: Turkish Kampanya raporu uses 'Maliyet' + 'Göstr.' columns
-  const isTR = rows.length > 0 && ('Maliyet' in rows[0] || 'Göstr.' in rows[0])
+  // Detect Turkish Kampanya raporu format via first actual data row's keys
+  const sample = rows.find((r) => r['Kampanya'] && !r['Kampanya'].startsWith('Toplam'))
+  const isTR = sample ? ('Maliyet' in sample || 'Göstr.' in sample) : false
   const map: Record<string, AdsMetrics> = {}
   for (const row of rows) {
     const camp = row['Kampanya'] ?? row['Campaign'] ?? 'Bilinmiyor'
-    if (camp.startsWith('Toplam')) continue
     if (!map[camp]) map[camp] = { campaign: camp, impressions: 0, clicks: 0, ctr: 0, spend: 0, conversions: 0, cpc: 0, cpa: 0 }
     if (isTR) {
       map[camp].impressions += numTR(row['Göstr.'])
@@ -199,23 +204,69 @@ function buildGoogleMetrics(rows: Record<string, string>[]): AdsMetrics[] {
   })).sort((a, b) => b.spend - a.spend)
 }
 
-function buildMetaMetrics(rows: Record<string, string>[]): AdsMetrics[] {
-  const map: Record<string, AdsMetrics> = {}
+interface MetaAdSetRow {
+  adset: string
+  resultType: string
+  impressions: number
+  clicks: number
+  spend: number
+  conversions: number
+  ctr: number
+  cpc: number
+}
+
+interface MetaCampaignGroup {
+  campaign: string
+  impressions: number
+  clicks: number
+  spend: number
+  conversions: number
+  ctr: number
+  cpc: number
+  adsets: MetaAdSetRow[]
+}
+
+function parseMetaNum(row: Record<string, string>, key: string): number {
+  return num(row[key] ?? '')
+}
+
+function buildMetaHierarchy(rows: Record<string, string>[]): MetaCampaignGroup[] {
+  const camps: Record<string, MetaCampaignGroup> = {}
   for (const row of rows) {
-    const camp =
-      row['Kampanya Adı'] ?? row['Campaign name'] ?? row['Campaign'] ?? 'Bilinmiyor'
-    if (!map[camp]) map[camp] = { campaign: camp, impressions: 0, clicks: 0, ctr: 0, spend: 0, conversions: 0, cpc: 0, cpa: 0 }
-    map[camp].impressions += num(row['Gösterim'] ?? row['Impressions'])
-    map[camp].clicks     += num(row['Bağlantı Tıklamaları'] ?? row['Link clicks'] ?? row['Clicks'])
-    map[camp].spend      += num(row['Harcanan Tutar (TRY)'] ?? row['Amount spent (TRY)'] ?? row['Amount spent'] ?? row['Spend'])
-    map[camp].conversions += num(row['Sonuçlar'] ?? row['Results'])
+    const camp  = row['Kampanya Adı'] ?? row['Campaign name'] ?? 'Bilinmiyor'
+    const adset = row['Reklam seti adı'] ?? row['Ad set name'] ?? 'Bilinmiyor'
+    const impr  = parseMetaNum(row, 'Gösterim') || parseMetaNum(row, 'Impressions')
+    const clicks = parseMetaNum(row, 'Bağlantı Tıklamaları') || parseMetaNum(row, 'Link clicks')
+    const spend  = parseMetaNum(row, 'Harcanan Tutar (TRY)') || parseMetaNum(row, 'Amount spent (TRY)') || parseMetaNum(row, 'Amount spent')
+    const conv   = parseMetaNum(row, 'Sonuçlar') || parseMetaNum(row, 'Results')
+    const resultType = row['Sonuç Türü'] ?? row['Result type'] ?? ''
+
+    if (!camps[camp]) camps[camp] = { campaign: camp, impressions: 0, clicks: 0, spend: 0, conversions: 0, ctr: 0, cpc: 0, adsets: [] }
+    camps[camp].impressions += impr
+    camps[camp].clicks      += clicks
+    camps[camp].spend       += spend
+    camps[camp].conversions += conv
+    camps[camp].adsets.push({
+      adset, resultType, impressions: impr, clicks, spend, conversions: conv,
+      ctr: impr > 0 ? (clicks / impr) * 100 : 0,
+      cpc: clicks > 0 ? spend / clicks : 0,
+    })
   }
-  return Object.values(map).map((r) => ({
-    ...r,
-    ctr: r.impressions > 0 ? (r.clicks / r.impressions) * 100 : 0,
-    cpc: r.clicks > 0 ? r.spend / r.clicks : 0,
-    cpa: r.conversions > 0 ? r.spend / r.conversions : 0,
+  return Object.values(camps).map((c) => ({
+    ...c,
+    ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+    cpc: c.clicks > 0 ? c.spend / c.clicks : 0,
+    adsets: c.adsets.sort((a, b) => b.spend - a.spend),
   })).sort((a, b) => b.spend - a.spend)
+}
+
+// Keep flat version for backward-compat (lead cost cross-reference)
+function buildMetaMetrics(rows: Record<string, string>[]): AdsMetrics[] {
+  return buildMetaHierarchy(rows).map((c) => ({
+    campaign: c.campaign, impressions: c.impressions, clicks: c.clicks,
+    spend: c.spend, conversions: c.conversions, ctr: c.ctr, cpc: c.cpc,
+    cpa: c.conversions > 0 ? c.spend / c.conversions : 0,
+  }))
 }
 
 interface CostRow {
@@ -527,54 +578,48 @@ function LeadReportTab({ project }: { project: Project }) {
   )
 }
 
-// ─── Ads Tab ──────────────────────────────────────────────────────────────────
+// ─── Shared lead cross-reference helper ──────────────────────────────────────
 
-function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }) {
-  const curr = project.files.find((f) => f.file_type === type && !f.is_previous)
-  const prev = project.files.find((f) => f.file_type === type && f.is_previous)
-  const leadCurr = project.files.find((f) => f.file_type === 'lead_detail' && !f.is_previous)
+function useLeadCrossRef(project: Project, channelName: string) {
+  const leadCurr   = project.files.find((f) => f.file_type === 'lead_detail'  && !f.is_previous)
+  const leadSumm   = project.files.find((f) => f.file_type === 'lead_summary' && !f.is_previous)
+  const detailMetrics = leadCurr ? buildLeadMetrics(leadCurr.data) : null
+  const summTotals    = leadSumm  ? buildSummaryTotals(leadSumm.data)  : null
+  const ch = detailMetrics?.channels.find((c) => c.channel === channelName)
+  if (!ch) return null
+  // If summary is available and this is the only channel, use its qualified count
+  const qualified = (summTotals && detailMetrics && detailMetrics.channels.length === 1)
+    ? summTotals.qualified
+    : ch.qualified
+  return { total: ch.total, qualified }
+}
 
-  if (!curr) return <EmptySlot label={`${type === 'google' ? 'Google' : 'Meta'} Ads dosyası yükleyin`} />
+// ─── Google Ads Tab ───────────────────────────────────────────────────────────
 
-  const metrics = type === 'google' ? buildGoogleMetrics(curr.data) : buildMetaMetrics(curr.data)
-  const prevMetrics = prev ? (type === 'google' ? buildGoogleMetrics(prev.data) : buildMetaMetrics(prev.data)) : null
-  const hasPrev = !!prevMetrics
+function GoogleAdsTab({ project }: { project: Project }) {
+  const curr = project.files.find((f) => f.file_type === 'google' && !f.is_previous)
+  const prev = project.files.find((f) => f.file_type === 'google' && f.is_previous)
+  if (!curr) return <EmptySlot label="Google Ads CSV dosyasını yükleyin" />
 
-  // Cross-reference with lead data — qualified count from summary file if available
-  const leadSummCurr = project.files.find((f) => f.file_type === 'lead_summary' && !f.is_previous)
-  const leadMetrics = leadCurr ? buildLeadMetrics(leadCurr.data) : null
-  const summTotalsAds = leadSummCurr ? buildSummaryTotals(leadSummCurr.data) : null
-  const channelName = type === 'google' ? 'Google Ads' : 'Meta / Facebook'
-  const channelLeadsRaw = leadMetrics?.channels.find((c) => c.channel === channelName)
-  // Use summary totals for overall qualified if available, keep channel-level from detail
-  const channelLeads = channelLeadsRaw ? {
-    ...channelLeadsRaw,
-    // For single-channel projects where all leads are this channel, use summary qualified
-    qualified: (summTotalsAds && leadMetrics && leadMetrics.channels.length === 1)
-      ? summTotalsAds.qualified
-      : channelLeadsRaw.qualified,
-  } : null
+  const metrics     = buildGoogleMetrics(curr.data)
+  const prevMetrics = prev ? buildGoogleMetrics(prev.data) : null
+  const channelLeads = useLeadCrossRef(project, 'Google Ads')
 
-  const totSpend = metrics.reduce((s, r) => s + r.spend, 0)
-  const totImpr = metrics.reduce((s, r) => s + r.impressions, 0)
+  const totSpend  = metrics.reduce((s, r) => s + r.spend, 0)
+  const totImpr   = metrics.reduce((s, r) => s + r.impressions, 0)
   const totClicks = metrics.reduce((s, r) => s + r.clicks, 0)
-  const totConv = metrics.reduce((s, r) => s + r.conversions, 0)
-  const avgCTR = totImpr > 0 ? (totClicks / totImpr) * 100 : 0
-  const avgCPC = totClicks > 0 ? totSpend / totClicks : 0
+  const totConv   = metrics.reduce((s, r) => s + r.conversions, 0)
+  const avgCTR    = totImpr   > 0 ? (totClicks / totImpr)  * 100 : 0
+  const avgCPC    = totClicks > 0 ? totSpend   / totClicks : 0
 
   return (
     <div className="space-y-3">
-      {/* Summary strip */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <TH>Harcama</TH>
-              <TH right>Gösterim</TH>
-              <TH right>Tıklama</TH>
-              <TH right>CTR</TH>
-              <TH right>TBM</TH>
-              {type === 'google' && <TH right>Dönüşüm</TH>}
+              <TH>Harcama</TH><TH right>Gösterim</TH><TH right>Tıklama</TH>
+              <TH right>CTR</TH><TH right>TBM</TH><TH right>Dönüşüm</TH>
               {channelLeads && <TH right>Lead</TH>}
               {channelLeads && <TH right>Nitelikli</TH>}
               {channelLeads && <TH right>Lead Maliyeti</TH>}
@@ -584,11 +629,9 @@ function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }
           <tbody>
             <tr>
               <TD bold>{cur(totSpend)}</TD>
-              <TD right>{fmt(totImpr)}</TD>
-              <TD right>{fmt(totClicks)}</TD>
-              <TD right>{pct(avgCTR)}</TD>
-              <TD right>{cur(avgCPC)}</TD>
-              {type === 'google' && <TD right>{fmt(totConv)}</TD>}
+              <TD right>{fmt(totImpr)}</TD><TD right>{fmt(totClicks)}</TD>
+              <TD right>{pct(avgCTR)}</TD><TD right>{cur(avgCPC)}</TD>
+              <TD right>{fmt(totConv)}</TD>
               {channelLeads && <TD right bold>{fmt(channelLeads.total)}</TD>}
               {channelLeads && <TD right green bold>{fmt(channelLeads.qualified)}</TD>}
               {channelLeads && <TD right bold>{channelLeads.total > 0 ? cur(totSpend / channelLeads.total) : '—'}</TD>}
@@ -598,21 +641,15 @@ function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }
         </table>
       </div>
 
-      {/* Campaign table */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr>
                 <TH>Kampanya</TH>
-                <TH right>Harcama</TH>
-                <TH right>Gösterim</TH>
-                <TH right>Tıklama</TH>
-                <TH right>CTR %</TH>
-                <TH right>TBM</TH>
-                {type === 'google' && <TH right>Dönüşüm</TH>}
-                {type === 'google' && <TH right>CPA</TH>}
-                {hasPrev && <TH right>Önceki Harcama</TH>}
+                <TH right>Harcama</TH><TH right>Gösterim</TH><TH right>Tıklama</TH>
+                <TH right>CTR %</TH><TH right>TBM</TH><TH right>Dönüşüm</TH><TH right>CPA</TH>
+                {prevMetrics && <TH right>Önceki Harcama</TH>}
               </tr>
             </thead>
             <tbody>
@@ -620,28 +657,140 @@ function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }
                 const p = prevMetrics?.find((x) => x.campaign === r.campaign)
                 return (
                   <tr key={r.campaign} className="hover:bg-slate-50/50">
-                    <TD><span className="truncate max-w-[200px] block" title={r.campaign}>{r.campaign}</span></TD>
+                    <TD><span className="truncate max-w-[220px] block" title={r.campaign}>{r.campaign}</span></TD>
                     <TD right bold>{cur(r.spend)}</TD>
-                    <TD right>{fmt(r.impressions)}</TD>
-                    <TD right>{fmt(r.clicks)}</TD>
-                    <TD right>{pct(r.ctr)}</TD>
-                    <TD right>{cur(r.cpc)}</TD>
-                    {type === 'google' && <TD right>{fmt(r.conversions)}</TD>}
-                    {type === 'google' && <TD right>{r.cpa > 0 ? cur(r.cpa) : '—'}</TD>}
-                    {hasPrev && <TD right>{p ? cur(p.spend) : '—'}{p ? <DeltaBadge curr={r.spend} prev={p.spend} /> : ''}</TD>}
+                    <TD right>{fmt(r.impressions)}</TD><TD right>{fmt(r.clicks)}</TD>
+                    <TD right>{pct(r.ctr)}</TD><TD right>{cur(r.cpc)}</TD>
+                    <TD right>{fmt(r.conversions)}</TD>
+                    <TD right>{r.cpa > 0 ? cur(r.cpa) : '—'}</TD>
+                    {prevMetrics && <TD right>{p ? cur(p.spend) : '—'}{p ? <DeltaBadge curr={r.spend} prev={p.spend} /> : ''}</TD>}
                   </tr>
                 )
               })}
               <tr className="bg-slate-50 border-t-2 border-slate-200">
                 <TD bold>TOPLAM</TD>
                 <TD right bold>{cur(totSpend)}</TD>
-                <TD right bold>{fmt(totImpr)}</TD>
-                <TD right bold>{fmt(totClicks)}</TD>
-                <TD right bold>{pct(avgCTR)}</TD>
-                <TD right bold>{cur(avgCPC)}</TD>
-                {type === 'google' && <TD right bold>{fmt(totConv)}</TD>}
-                {type === 'google' && <TD right bold>{totConv > 0 ? cur(totSpend / totConv) : '—'}</TD>}
-                {hasPrev && <TD right bold>{cur(prevMetrics!.reduce((s, r) => s + r.spend, 0))}</TD>}
+                <TD right bold>{fmt(totImpr)}</TD><TD right bold>{fmt(totClicks)}</TD>
+                <TD right bold>{pct(avgCTR)}</TD><TD right bold>{cur(avgCPC)}</TD>
+                <TD right bold>{fmt(totConv)}</TD>
+                <TD right bold>{totConv > 0 ? cur(totSpend / totConv) : '—'}</TD>
+                {prevMetrics && <TD right bold>{cur(prevMetrics.reduce((s, r) => s + r.spend, 0))}</TD>}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Meta Ads Tab (hierarchical: campaign → ad sets) ─────────────────────────
+
+function MetaAdsTab({ project }: { project: Project }) {
+  const curr = project.files.find((f) => f.file_type === 'meta' && !f.is_previous)
+  const prev = project.files.find((f) => f.file_type === 'meta' && f.is_previous)
+  if (!curr) return <EmptySlot label="Meta Ads CSV dosyasını yükleyin" />
+
+  const groups     = buildMetaHierarchy(curr.data)
+  const prevGroups = prev ? buildMetaHierarchy(prev.data) : null
+  const channelLeads = useLeadCrossRef(project, 'Meta / Facebook')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggle = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
+
+  const totSpend  = groups.reduce((s, g) => s + g.spend, 0)
+  const totImpr   = groups.reduce((s, g) => s + g.impressions, 0)
+  const totClicks = groups.reduce((s, g) => s + g.clicks, 0)
+  const totConv   = groups.reduce((s, g) => s + g.conversions, 0)
+  const avgCTR    = totImpr   > 0 ? (totClicks / totImpr)  * 100 : 0
+  const avgCPC    = totClicks > 0 ? totSpend   / totClicks : 0
+
+  return (
+    <div className="space-y-3">
+      {/* Summary strip */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <TH>Harcama</TH><TH right>Gösterim</TH><TH right>Tıklama</TH>
+              <TH right>CTR</TH><TH right>TBM</TH><TH right>Sonuç</TH>
+              {channelLeads && <TH right>Lead</TH>}
+              {channelLeads && <TH right>Nitelikli</TH>}
+              {channelLeads && <TH right>Lead Maliyeti</TH>}
+              {channelLeads && <TH right>Nitelikli Maliyet</TH>}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <TD bold>{cur(totSpend)}</TD>
+              <TD right>{fmt(totImpr)}</TD><TD right>{fmt(totClicks)}</TD>
+              <TD right>{pct(avgCTR)}</TD><TD right>{cur(avgCPC)}</TD>
+              <TD right>{fmt(totConv)}</TD>
+              {channelLeads && <TD right bold>{fmt(channelLeads.total)}</TD>}
+              {channelLeads && <TD right green bold>{fmt(channelLeads.qualified)}</TD>}
+              {channelLeads && <TD right bold>{channelLeads.total > 0 ? cur(totSpend / channelLeads.total) : '—'}</TD>}
+              {channelLeads && <TD right bold>{channelLeads.qualified > 0 ? cur(totSpend / channelLeads.qualified) : '—'}</TD>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Campaign → ad set hierarchy */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <TH>Kampanya / Reklam Seti</TH>
+                <TH right>Harcama</TH><TH right>Gösterim</TH><TH right>Tıklama</TH>
+                <TH right>CTR %</TH><TH right>TBM</TH><TH right>Sonuç</TH>
+                {prevGroups && <TH right>Önceki Harcama</TH>}
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => {
+                const isOpen = expanded.has(g.campaign)
+                const pg = prevGroups?.find((x) => x.campaign === g.campaign)
+                return (
+                  <React.Fragment key={g.campaign}>
+                    {/* Campaign row */}
+                    <tr className="bg-slate-50/60 hover:bg-slate-100/60 border-b border-slate-200">
+                      <td className="px-3 py-1.5 text-xs font-semibold text-slate-700">
+                        <button onClick={() => toggle(g.campaign)} className="mr-1.5 text-slate-400 hover:text-blue-600 font-mono select-none">
+                          {isOpen ? '⊟' : '⊞'}
+                        </button>
+                        <span className="truncate max-w-[200px] inline-block align-middle" title={g.campaign}>{g.campaign}</span>
+                        <span className="ml-1.5 text-[10px] text-slate-400 font-normal">({g.adsets.length} set)</span>
+                      </td>
+                      <TD right bold>{cur(g.spend)}</TD>
+                      <TD right>{fmt(g.impressions)}</TD><TD right>{fmt(g.clicks)}</TD>
+                      <TD right>{pct(g.ctr)}</TD><TD right>{cur(g.cpc)}</TD>
+                      <TD right bold>{fmt(g.conversions)}</TD>
+                      {prevGroups && <TD right>{pg ? cur(pg.spend) : '—'}{pg ? <DeltaBadge curr={g.spend} prev={pg.spend} /> : ''}</TD>}
+                    </tr>
+                    {/* Ad set rows (shown when expanded) */}
+                    {isOpen && g.adsets.map((a) => (
+                      <tr key={a.adset} className="hover:bg-blue-50/20 border-b border-slate-100">
+                        <td className="px-3 py-1 text-xs text-slate-600 pl-8">
+                          <span className="truncate max-w-[200px] block" title={a.adset}>{a.adset}</span>
+                          {a.resultType && <span className="text-[10px] text-slate-400">{a.resultType}</span>}
+                        </td>
+                        <TD right>{cur(a.spend)}</TD>
+                        <TD right>{fmt(a.impressions)}</TD><TD right>{fmt(a.clicks)}</TD>
+                        <TD right>{pct(a.ctr)}</TD><TD right>{cur(a.cpc)}</TD>
+                        <TD right>{fmt(a.conversions)}</TD>
+                        {prevGroups && <TD right>—</TD>}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                )
+              })}
+              <tr className="bg-slate-50 border-t-2 border-slate-200">
+                <TD bold>TOPLAM</TD>
+                <TD right bold>{cur(totSpend)}</TD>
+                <TD right bold>{fmt(totImpr)}</TD><TD right bold>{fmt(totClicks)}</TD>
+                <TD right bold>{pct(avgCTR)}</TD><TD right bold>{cur(avgCPC)}</TD>
+                <TD right bold>{fmt(totConv)}</TD>
+                {prevGroups && <TD right bold>{cur(prevGroups.reduce((s, g) => s + g.spend, 0))}</TD>}
               </tr>
             </tbody>
           </table>
@@ -935,10 +1084,10 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
         </div>
       )}
 
-      {activeTab === 'lead' && <LeadReportTab project={project} />}
-      {activeTab === 'google' && <AdsTab project={project} type="google" />}
-      {activeTab === 'meta' && <AdsTab project={project} type="meta" />}
-      {activeTab === 'cost' && <CostTab project={project} />}
+      {activeTab === 'lead'   && <LeadReportTab project={project} />}
+      {activeTab === 'google' && <GoogleAdsTab  project={project} />}
+      {activeTab === 'meta'   && <MetaAdsTab    project={project} />}
+      {activeTab === 'cost'   && <CostTab        project={project} />}
     </div>
   )
 }
