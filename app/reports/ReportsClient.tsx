@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 
 // ── Types ─────────────────────────────────────────────
 
-type ReportSource = 'crm' | 'google' | 'meta' | 'cost'
+type ReportSource = 'crm' | 'performans' | 'google' | 'meta' | 'cost'
 
 interface ReportTab {
   id: string
@@ -18,22 +18,20 @@ interface ReportTab {
 
 // ── CRM status classification ─────────────────────────
 
-const QUALIFIED_STATUSES = new Set([
-  'Uygun Bulundu',
-  'Firma kaydı oluşturuldu',
-  'Potansiyel Müşteri',
-  'Müşteri',
-])
+// Niteliksiz = sadece bu iki statü; geri kalan her şey nitelikli (boş hariç)
+const UNQUALIFIED_STATUSES = new Set(['Alakasız', 'Ulaşılamadı'])
 
-function classifyStatus(durum: string): 'qualified' | 'unqualified' {
-  return QUALIFIED_STATUSES.has(durum) ? 'qualified' : 'unqualified'
+function classifyStatus(durum: string): 'qualified' | 'unqualified' | 'skip' {
+  if (!durum || durum === 'None') return 'skip'
+  return UNQUALIFIED_STATUSES.has(durum) ? 'unqualified' : 'qualified'
 }
 
 function normalizeChannel(kanal: string | undefined): string {
   if (!kanal) return 'Diğer'
-  const k = kanal.toLowerCase()
-  if (k.includes('google')) return 'Google'
-  if (k.includes('facebook') || k.includes('meta') || k.includes('instagram')) return 'Meta / Facebook'
+  // Sadece google_ads ücretli reklam sayılır; organic hariç
+  if (kanal === 'google_ads') return 'Google Ads'
+  if (kanal.toLowerCase() === 'google' || kanal === 'google_organic') return 'Google Organik'
+  if (kanal.toLowerCase().includes('facebook') || kanal.toLowerCase().includes('meta') || kanal.toLowerCase().includes('instagram')) return 'Meta / Facebook'
   return kanal
 }
 
@@ -41,6 +39,7 @@ function normalizeChannel(kanal: string | undefined): string {
 
 function detectSource(headers: string[]): ReportSource {
   const h = headers.join(' ').toLowerCase()
+  if (h.includes('nitelikli lead') || h.includes('teklif sayısı') || h.includes('createquarter')) return 'performans'
   if (h.includes('durumu') && h.includes('kampanya') && h.includes('başvuru kaynağı')) return 'crm'
   if (h.includes('reach') || h.includes('erişim') || h.includes('frequency')) return 'meta'
   if (h.includes('impressions') || h.includes('clicks') || h.includes('cost')) return 'google'
@@ -76,8 +75,9 @@ interface CRMSummary {
   total: number
   qualified: number
   unqualified: number
+  skipped: number
   qualRate: number
-  byStatus: { status: string; count: number; cls: 'qualified' | 'unqualified' }[]
+  byStatus: { status: string; count: number; cls: 'qualified' | 'unqualified' | 'skip' }[]
   byCampaign: CampaignRow[]
   bySource: { source: string; total: number; qualified: number; qualRate: number }[]
   byChannel: { channel: string; total: number; qualified: number; qualRate: number }[]
@@ -89,7 +89,7 @@ function buildCRMSummary(data: Record<string, string>[]): CRMSummary {
   const sourceMap: Record<string, { total: number; qualified: number }> = {}
   const channelMap: Record<string, { total: number; qualified: number }> = {}
 
-  let total = 0, qualified = 0, unqualified = 0
+  let total = 0, qualified = 0, unqualified = 0, skipped = 0
 
   for (const row of data) {
     const durum = row['Durumu'] ?? row['durumu'] ?? ''
@@ -98,6 +98,8 @@ function buildCRMSummary(data: Record<string, string>[]): CRMSummary {
     const rawKanal = row['Kanal'] ?? row['kanal'] ?? ''
     const kanal = normalizeChannel(rawKanal)
     const cls = classifyStatus(durum)
+
+    if (cls === 'skip') { skipped++; continue }
 
     total++
     if (cls === 'qualified') qualified++
@@ -136,10 +138,40 @@ function buildCRMSummary(data: Record<string, string>[]): CRMSummary {
     .sort((a, b) => b.total - a.total)
 
   return {
-    total, qualified, unqualified,
+    total, qualified, unqualified, skipped,
     qualRate: total > 0 ? (qualified / total) * 100 : 0,
     byStatus, byCampaign, bySource, byChannel,
   }
+}
+
+// ── Lead Performans parsing ────────────────────────────
+
+interface PerfRow {
+  year: string
+  quarter: string
+  month: string
+  date: string
+  lead: number
+  nitelikli: number
+  niteliksiz: number
+  firma: number
+  teklif: number
+  bolum: number
+}
+
+function buildPerfRows(data: Record<string, string>[]): PerfRow[] {
+  return data.map((r) => ({
+    year: r['Tarih'] ?? '',
+    quarter: r['CreateQuarter'] ?? '',
+    month: r['CreateMonth'] ?? '',
+    date: r['CreateDay'] ?? '',
+    lead: num(r['Lead']),
+    nitelikli: num(r['Nitelikli Lead']),
+    niteliksiz: num(r['Niteliksiz Lead']),
+    firma: num(r['Firma']),
+    teklif: num(r['Teklif Sayısı']),
+    bolum: num(r['B. Bölüm']),
+  }))
 }
 
 // ── File parsing ──────────────────────────────────────
@@ -195,11 +227,12 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 
 // ── CRM View ──────────────────────────────────────────
 
-const CLS_COLORS: Record<'qualified' | 'unqualified', string> = {
+const CLS_COLORS: Record<'qualified' | 'unqualified' | 'skip', string> = {
   qualified: 'bg-green-100 text-green-700',
   unqualified: 'bg-red-100 text-red-700',
+  skip: 'bg-slate-100 text-slate-400',
 }
-const CLS_LABELS: Record<'qualified' | 'unqualified', string> = { qualified: 'Nitelikli', unqualified: 'Niteliksiz' }
+const CLS_LABELS: Record<'qualified' | 'unqualified' | 'skip', string> = { qualified: 'Nitelikli', unqualified: 'Niteliksiz', skip: '—' }
 
 function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab }) {
   const summary = buildCRMSummary(report.data)
@@ -223,12 +256,32 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
   )
 
   return (
-    <div className="space-y-6">
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Toplam Lead" value={fmt(summary.total)} />
-        <StatCard label="Nitelikli Lead" value={fmt(summary.qualified)} sub={pct(summary.qualRate) + ' nitelik oranı'} color="green" />
-        <StatCard label="Niteliksiz" value={fmt(summary.unqualified)} sub={pct(summary.total > 0 ? (summary.unqualified / summary.total) * 100 : 0)} color="red" />
+    <div className="space-y-4">
+      {/* Compact summary strip */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="px-4 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider">Toplam Lead</th>
+              <th className="px-4 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider border-l border-slate-100">Nitelikli</th>
+              <th className="px-4 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider border-l border-slate-100">Niteliksiz</th>
+              <th className="px-4 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider border-l border-slate-100">Nitelik Oranı</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="px-4 py-2 font-bold text-slate-800 text-sm tabular-nums">{fmt(summary.total)}</td>
+              <td className="px-4 py-2 font-bold text-green-700 text-sm tabular-nums border-l border-slate-100">{fmt(summary.qualified)}</td>
+              <td className="px-4 py-2 font-bold text-red-500 text-sm tabular-nums border-l border-slate-100">{fmt(summary.unqualified)}</td>
+              <td className="px-4 py-2 border-l border-slate-100">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  summary.qualRate >= 30 ? 'bg-green-100 text-green-700' :
+                  summary.qualRate >= 15 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'
+                }`}>{pct(summary.qualRate)}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       {/* Tab selector */}
@@ -282,20 +335,20 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                   const isGoogle = row.channel === 'Google'
                   return (
                     <tr key={row.campaign} className="border-b border-slate-50 hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-medium text-slate-700 max-w-xs">
+                      <td className="px-4 py-1.5 font-medium text-slate-700 max-w-xs">
                         <div className="truncate" title={row.campaign}>{row.campaign || '—'}</div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-1.5">
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                           isGoogle ? 'bg-blue-50 text-blue-600' : 'bg-indigo-50 text-indigo-600'
                         }`}>
                           {isGoogle ? '🔵 Google' : '🔷 Meta'}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-right font-semibold">{fmt(row.total)}</td>
-                      <td className="px-3 py-2.5 text-right text-green-600 font-medium">{fmt(row.qualified)}</td>
-                      <td className="px-3 py-2.5 text-right text-red-500">{fmt(row.unqualified)}</td>
-                      <td className="px-3 py-2.5 text-right">
+                      <td className="px-3 py-1.5 text-right font-semibold text-xs tabular-nums">{fmt(row.total)}</td>
+                      <td className="px-3 py-1.5 text-right text-green-700 font-semibold text-xs tabular-nums">{fmt(row.qualified)}</td>
+                      <td className="px-3 py-1.5 text-right text-red-500 text-xs tabular-nums">{fmt(row.unqualified)}</td>
+                      <td className="px-3 py-1.5 text-right">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                           row.qualRate >= 30 ? 'bg-green-100 text-green-700' :
                           row.qualRate >= 15 ? 'bg-amber-100 text-amber-700' :
@@ -304,28 +357,28 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                           {pct(row.qualRate)}
                         </span>
                       </td>
-                      {hasCost && <td className="px-3 py-2.5 text-right text-slate-600">{spend > 0 ? cur(spend) : '—'}</td>}
-                      {hasCost && <td className="px-3 py-2.5 text-right text-slate-600">{cpl > 0 ? cur(cpl) : '—'}</td>}
-                      {hasCost && <td className="px-3 py-2.5 text-right font-medium text-blue-600">{cpql > 0 ? cur(cpql) : '—'}</td>}
+                      {hasCost && <td className="px-3 py-1.5 text-right text-slate-600">{spend > 0 ? cur(spend) : '—'}</td>}
+                      {hasCost && <td className="px-3 py-1.5 text-right text-slate-600">{cpl > 0 ? cur(cpl) : '—'}</td>}
+                      {hasCost && <td className="px-3 py-1.5 text-right font-medium text-blue-600">{cpql > 0 ? cur(cpql) : '—'}</td>}
                     </tr>
                   )
                 })}
                 {/* Totals row */}
                 <tr className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
-                  <td className="px-4 py-2.5" colSpan={2}>TOPLAM</td>
-                  <td className="px-3 py-2.5 text-right">{fmt(summary.total)}</td>
-                  <td className="px-3 py-2.5 text-right text-green-600">{fmt(summary.qualified)}</td>
-                  <td className="px-3 py-2.5 text-right text-red-500">{fmt(summary.unqualified)}</td>
-                  <td className="px-3 py-2.5 text-right">{pct(summary.qualRate)}</td>
+                  <td className="px-4 py-1.5" colSpan={2}>TOPLAM</td>
+                  <td className="px-3 py-1.5 text-right">{fmt(summary.total)}</td>
+                  <td className="px-3 py-1.5 text-right text-green-700 text-xs tabular-nums">{fmt(summary.qualified)}</td>
+                  <td className="px-3 py-1.5 text-right text-red-500 text-xs tabular-nums">{fmt(summary.unqualified)}</td>
+                  <td className="px-3 py-1.5 text-right">{pct(summary.qualRate)}</td>
                   {hasCost && (() => {
                     const totalSpend = Object.values(costMap).reduce((a, b) => a + b, 0)
                     const totalCPL = totalSpend > 0 && summary.total > 0 ? totalSpend / summary.total : 0
                     const totalCPQL = totalSpend > 0 && summary.qualified > 0 ? totalSpend / summary.qualified : 0
                     return (
                       <>
-                        <td className="px-3 py-2.5 text-right">{totalSpend > 0 ? cur(totalSpend) : '—'}</td>
-                        <td className="px-3 py-2.5 text-right">{totalCPL > 0 ? cur(totalCPL) : '—'}</td>
-                        <td className="px-3 py-2.5 text-right text-blue-600">{totalCPQL > 0 ? cur(totalCPQL) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right">{totalSpend > 0 ? cur(totalSpend) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right">{totalCPL > 0 ? cur(totalCPL) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right text-blue-600">{totalCPQL > 0 ? cur(totalCPQL) : '—'}</td>
                       </>
                     )
                   })()}
@@ -367,14 +420,14 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
-                        <th className="text-left px-4 py-2.5">Kampanya</th>
-                        <th className="text-right px-3 py-2.5">Toplam</th>
-                        <th className="text-right px-3 py-2.5 text-green-600">Nitelikli</th>
-                        <th className="text-right px-3 py-2.5 text-red-500">Niteliksiz</th>
-                        <th className="text-right px-3 py-2.5">Nitelik %</th>
-                        {hasCost && <th className="text-right px-3 py-2.5">Harcama</th>}
-                        {hasCost && <th className="text-right px-3 py-2.5">Lead Maliyeti</th>}
-                        {hasCost && <th className="text-right px-3 py-2.5">Nitelikli Maliyet</th>}
+                        <th className="text-left px-4 py-1.5">Kampanya</th>
+                        <th className="text-right px-3 py-1.5">Toplam</th>
+                        <th className="text-right px-3 py-1.5 text-green-600">Nitelikli</th>
+                        <th className="text-right px-3 py-1.5 text-red-500">Niteliksiz</th>
+                        <th className="text-right px-3 py-1.5">Nitelik %</th>
+                        {hasCost && <th className="text-right px-3 py-1.5">Harcama</th>}
+                        {hasCost && <th className="text-right px-3 py-1.5">Lead Maliyeti</th>}
+                        {hasCost && <th className="text-right px-3 py-1.5">Nitelikli Maliyet</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -387,10 +440,10 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                             <td className="px-4 py-2 font-medium text-slate-700 max-w-xs">
                               <div className="truncate" title={row.campaign}>{row.campaign || '—'}</div>
                             </td>
-                            <td className="px-3 py-2 text-right font-semibold">{fmt(row.total)}</td>
-                            <td className="px-3 py-2 text-right text-green-600 font-medium">{fmt(row.qualified)}</td>
-                            <td className="px-3 py-2 text-right text-red-500">{fmt(row.unqualified)}</td>
-                            <td className="px-3 py-2 text-right">
+                            <td className="px-3 py-1.5 text-right text-xs tabular-nums font-semibold">{fmt(row.total)}</td>
+                            <td className="px-3 py-1.5 text-right text-xs tabular-nums text-green-600 font-medium">{fmt(row.qualified)}</td>
+                            <td className="px-3 py-1.5 text-right text-xs tabular-nums text-red-500">{fmt(row.unqualified)}</td>
+                            <td className="px-3 py-1.5 text-right text-xs tabular-nums">
                               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                                 row.qualRate >= 30 ? 'bg-green-100 text-green-700' :
                                 row.qualRate >= 15 ? 'bg-amber-100 text-amber-700' :
@@ -399,9 +452,9 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                                 {pct(row.qualRate)}
                               </span>
                             </td>
-                            {hasCost && <td className="px-3 py-2 text-right text-slate-600">{spend > 0 ? cur(spend) : '—'}</td>}
-                            {hasCost && <td className="px-3 py-2 text-right text-slate-600">{cpl > 0 ? cur(cpl) : '—'}</td>}
-                            {hasCost && <td className="px-3 py-2 text-right text-blue-600 font-medium">{cpql > 0 ? cur(cpql) : '—'}</td>}
+                            {hasCost && <td className="px-3 py-1.5 text-right text-xs tabular-nums text-slate-600">{spend > 0 ? cur(spend) : '—'}</td>}
+                            {hasCost && <td className="px-3 py-1.5 text-right text-xs tabular-nums text-slate-600">{cpl > 0 ? cur(cpl) : '—'}</td>}
+                            {hasCost && <td className="px-3 py-1.5 text-right text-xs tabular-nums text-blue-600 font-medium">{cpql > 0 ? cur(cpql) : '—'}</td>}
                           </tr>
                         )
                       })}
@@ -430,10 +483,10 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
             <tbody>
               {summary.bySource.map((row) => (
                 <tr key={row.source} className="border-b border-slate-50 hover:bg-slate-50/50">
-                  <td className="px-4 py-2.5 font-medium text-slate-700">{row.source || '—'}</td>
-                  <td className="px-3 py-2.5 text-right font-semibold">{fmt(row.total)}</td>
-                  <td className="px-3 py-2.5 text-right text-green-600">{fmt(row.qualified)}</td>
-                  <td className="px-3 py-2.5 text-right">
+                  <td className="px-4 py-1.5 font-medium text-slate-700">{row.source || '—'}</td>
+                  <td className="px-3 py-1.5 text-right font-semibold text-xs tabular-nums">{fmt(row.total)}</td>
+                  <td className="px-3 py-1.5 text-right text-green-700 text-xs tabular-nums">{fmt(row.qualified)}</td>
+                  <td className="px-3 py-1.5 text-right">
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                       row.qualRate >= 30 ? 'bg-green-100 text-green-700' :
                       row.qualRate >= 15 ? 'bg-amber-100 text-amber-700' :
@@ -442,7 +495,7 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                       {pct(row.qualRate)}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-right text-slate-500">
+                  <td className="px-3 py-1.5 text-right text-slate-500">
                     {pct(summary.total > 0 ? (row.total / summary.total) * 100 : 0)}
                   </td>
                 </tr>
@@ -468,17 +521,17 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
             <tbody>
               {summary.byStatus.map((row) => (
                 <tr key={row.status} className="border-b border-slate-50 hover:bg-slate-50/50">
-                  <td className="px-4 py-2.5 font-medium text-slate-700">{row.status || '(Boş)'}</td>
-                  <td className="px-3 py-2.5">
+                  <td className="px-4 py-1.5 font-medium text-slate-700">{row.status || '(Boş)'}</td>
+                  <td className="px-3 py-1.5">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CLS_COLORS[row.cls]}`}>
                       {CLS_LABELS[row.cls]}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-right font-semibold">{fmt(row.count)}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-500">
+                  <td className="px-3 py-1.5 text-right font-semibold text-xs tabular-nums">{fmt(row.count)}</td>
+                  <td className="px-3 py-1.5 text-right text-slate-500">
                     {pct(summary.total > 0 ? (row.count / summary.total) * 100 : 0)}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-1.5">
                     <div className="w-32 bg-slate-100 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${
@@ -527,7 +580,7 @@ function GenericView({ report }: { report: ReportTab }) {
           <thead>
             <tr className="bg-slate-50 border-b border-slate-100">
               {headers.slice(0, 12).map((c) => (
-                <th key={c} className="text-left px-3 py-2.5 font-semibold text-slate-600 whitespace-nowrap">{c}</th>
+                <th key={c} className="text-left px-3 py-1.5 font-semibold text-slate-600 whitespace-nowrap">{c}</th>
               ))}
             </tr>
           </thead>
@@ -559,9 +612,150 @@ function GenericView({ report }: { report: ReportTab }) {
 
 const SOURCE_LABELS: Record<ReportSource, string> = {
   crm: '📋 CRM Aktiviteleri',
+  performans: '📊 Lead Performansı',
   google: '🔵 Google Ads',
   meta: '🔷 Meta Ads',
   cost: '💰 Maliyet Raporu',
+}
+
+// ── Lead Performans View ───────────────────────────────
+
+function PerformansView({ report }: { report: ReportTab }) {
+  const rows = buildPerfRows(report.data)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  const toggle = (key: string) =>
+    setCollapsed((prev) => {
+      const s = new Set(prev)
+      s.has(key) ? s.delete(key) : s.add(key)
+      return s
+    })
+
+  // Find the summary row
+  const totalRow = rows.find((r) => String(r.year).toLowerCase() === 'total' || String(r.year) === 'Toplam')
+  const dataRows = rows.filter((r) => String(r.year).toLowerCase() !== 'total' && String(r.year) !== 'Toplam')
+
+  const thCls = 'px-3 py-1.5 text-right text-xs font-semibold text-slate-500 border-r border-slate-200 last:border-r-0 whitespace-nowrap bg-slate-50'
+  const tdCls = 'px-3 py-1 text-right text-xs tabular-nums border-r border-slate-200 last:border-r-0'
+  const tdLabelCls = 'px-3 py-1 text-xs border-r border-slate-200'
+
+  const PerfRow = ({ row, indent, label, rowKey, hasChildren }: {
+    row: PerfRow; indent: number; label: string; rowKey: string; hasChildren: boolean
+  }) => {
+    const isCollapsed = collapsed.has(rowKey)
+    return (
+      <tr className="border-b border-slate-100 hover:bg-blue-50/30">
+        <td className={`${tdLabelCls} font-medium text-slate-700`} style={{ paddingLeft: 8 + indent * 16 }}>
+          {hasChildren ? (
+            <button onClick={() => toggle(rowKey)} className="mr-1 text-slate-400 hover:text-blue-600 font-mono text-xs select-none">
+              {isCollapsed ? '⊞' : '⊟'}
+            </button>
+          ) : (
+            <span className="mr-1 inline-block w-3" />
+          )}
+          {label}
+        </td>
+        <td className={tdCls}>{fmt(row.lead)}</td>
+        <td className={`${tdCls} text-green-700 font-semibold`}>{fmt(row.nitelikli)}</td>
+        <td className={`${tdCls} text-red-500`}>{fmt(row.niteliksiz)}</td>
+        <td className={tdCls}>{fmt(row.firma)}</td>
+        <td className={tdCls}>{row.teklif > 0 ? fmt(row.teklif) : '—'}</td>
+        <td className={tdCls}>{row.bolum > 0 ? fmt(row.bolum) : '—'}</td>
+      </tr>
+    )
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="px-4 py-1.5 border-b border-slate-200 bg-slate-50">
+        <span className="text-sm font-semibold text-slate-800">Lead Performansı</span>
+        <span className="text-xs text-slate-400 ml-2">{report.fileName}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-slate-200">
+              <th className={`${thCls} text-left`} style={{ minWidth: 140 }}>Tarih</th>
+              <th className={thCls}>Lead</th>
+              <th className={thCls}>Nitelikli Lead</th>
+              <th className={thCls}>Niteliksiz Lead</th>
+              <th className={thCls}>Firma</th>
+              <th className={thCls}>Teklif Sayısı</th>
+              <th className={thCls}>B. Bölüm</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dataRows.map((r, i) => {
+              const yearKey = String(r.year)
+              const qKey = `${yearKey}_${r.quarter}`
+              const mKey = `${qKey}_${r.month}`
+
+              // Year row
+              if (r.month === 'Total' || r.month === '' || r.month === null) {
+                if (r.quarter === 'Total' || r.quarter === '' || r.quarter === null) {
+                  return <PerfRow key={i} row={r} indent={0} label={yearKey} rowKey={yearKey} hasChildren />
+                }
+              }
+              // Quarter row
+              if (collapsed.has(yearKey)) return null
+              if ((r.date === 'Total' || r.date === '' || r.date === null) &&
+                  r.month !== 'Total' && r.month !== '' && r.month !== null &&
+                  (r.quarter !== 'Total' && r.quarter !== '')) {
+                if (r.month === 'Total' || typeof r.month === 'string' && r.month.startsWith('Total')) {
+                  return <PerfRow key={i} row={r} indent={1} label={`Q${r.quarter}`} rowKey={qKey} hasChildren />
+                }
+              }
+              return null
+            })}
+            {/* Simpler approach: just render all rows with indentation based on data */}
+            {(() => {
+              const elements: React.ReactNode[] = []
+              for (let i = 0; i < dataRows.length; i++) {
+                const r = dataRows[i]
+                const yearStr = String(r.year)
+                const qStr = String(r.quarter)
+                const mStr = String(r.month)
+                const dStr = String(r.date)
+
+                const yearKey = yearStr
+                const qKey = `${yearStr}_${qStr}`
+                const mKey = `${yearStr}_${qStr}_${mStr}`
+
+                if (qStr === 'Total' || qStr === 'None' || qStr === 'null' || !r.quarter) {
+                  // Year-level row
+                  elements.push(<PerfRow key={`y${i}`} row={r} indent={0} label={yearStr} rowKey={yearKey} hasChildren />)
+                } else if (mStr === 'Total' || mStr === 'None' || mStr === 'null' || !r.month) {
+                  if (collapsed.has(yearKey)) continue
+                  elements.push(<PerfRow key={`q${i}`} row={r} indent={1} label={`Q${qStr}`} rowKey={qKey} hasChildren />)
+                } else if (dStr === 'Total' || dStr === 'None' || dStr === 'null' || !r.date) {
+                  if (collapsed.has(yearKey) || collapsed.has(qKey)) continue
+                  elements.push(<PerfRow key={`m${i}`} row={r} indent={2} label={`${mStr}. Ay`} rowKey={mKey} hasChildren />)
+                } else {
+                  if (collapsed.has(yearKey) || collapsed.has(qKey) || collapsed.has(mKey)) continue
+                  const dateLabel = dStr.includes('T') || dStr.includes('-') ? new Date(dStr).toLocaleDateString('tr-TR') : dStr
+                  elements.push(<PerfRow key={`d${i}`} row={r} indent={3} label={dateLabel} rowKey={`d${i}`} hasChildren={false} />)
+                }
+              }
+              return elements
+            })()}
+          </tbody>
+          {totalRow && (
+            <tfoot>
+              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                <td className="px-3 py-1.5 text-xs font-bold text-slate-800 border-r border-slate-200">Toplam</td>
+                <td className={tdCls + ' font-bold text-slate-800'}>{fmt(totalRow.lead)}</td>
+                <td className={tdCls + ' font-bold text-green-700'}>{fmt(totalRow.nitelikli)}</td>
+                <td className={tdCls + ' font-bold text-red-500'}>{fmt(totalRow.niteliksiz)}</td>
+                <td className={tdCls + ' font-bold text-slate-800'}>{fmt(totalRow.firma)}</td>
+                <td className={tdCls + ' font-bold text-slate-800'}>{totalRow.teklif > 0 ? fmt(totalRow.teklif) : '—'}</td>
+                <td className={tdCls + ' font-bold text-slate-800'}>{totalRow.bolum > 0 ? fmt(totalRow.bolum) : '—'}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  )
 }
 
 // ── Main component ────────────────────────────────────
@@ -763,7 +957,7 @@ export default function ReportsClient() {
               <div key={tab.id} className="flex items-center group shrink-0">
                 <button
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'
                   }`}
                 >
@@ -794,6 +988,8 @@ export default function ReportsClient() {
 
               {activeReport.source === 'crm' ? (
                 <CRMView report={activeReport} costData={costReport} />
+              ) : activeReport.source === 'performans' ? (
+                <PerformansView report={activeReport} />
               ) : (
                 <GenericView report={activeReport} />
               )}
