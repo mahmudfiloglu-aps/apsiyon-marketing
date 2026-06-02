@@ -515,3 +515,83 @@ export async function deleteAdReport(id: string, userId: string) {
   const sql = getDb()
   await sql`DELETE FROM ad_reports WHERE id = ${id} AND user_id = ${userId}`
 }
+
+// ── Report Projects ────────────────────────────────────
+
+export async function createReportProjectsTables() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS report_projects (
+      id VARCHAR(255) PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_name VARCHAR(255) NOT NULL,
+      period_type VARCHAR(20) NOT NULL DEFAULT 'monthly',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS report_files (
+      id VARCHAR(255) PRIMARY KEY,
+      project_id VARCHAR(255) NOT NULL REFERENCES report_projects(id) ON DELETE CASCADE,
+      file_type VARCHAR(50) NOT NULL,
+      is_previous BOOLEAN NOT NULL DEFAULT FALSE,
+      file_name VARCHAR(255) NOT NULL,
+      data JSONB,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(project_id, file_type, is_previous)
+    )
+  `
+}
+
+export async function listReportProjects(userId: string) {
+  const sql = getDb()
+  await createReportProjectsTables()
+  return sql`
+    SELECT id, project_name, period_type, created_at
+    FROM report_projects WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+  `
+}
+
+export async function createReportProject(id: string, userId: string, projectName: string, periodType: string) {
+  const sql = getDb()
+  await createReportProjectsTables()
+  await sql`
+    INSERT INTO report_projects (id, user_id, project_name, period_type)
+    VALUES (${id}, ${userId}, ${projectName}, ${periodType})
+  `
+}
+
+export async function deleteReportProject(id: string, userId: string) {
+  const sql = getDb()
+  await sql`DELETE FROM report_projects WHERE id = ${id} AND user_id = ${userId}`
+}
+
+export async function getReportProjectFiles(projectId: string, userId: string) {
+  const sql = getDb()
+  // Verify ownership
+  const proj = await sql`SELECT id FROM report_projects WHERE id = ${projectId} AND user_id = ${userId}`
+  if (!proj.length) return []
+  return sql`SELECT id, file_type, is_previous, file_name, data, created_at FROM report_files WHERE project_id = ${projectId}`
+}
+
+export async function upsertReportFile(
+  id: string, projectId: string, fileType: string, isPrevious: boolean, fileName: string, data: Record<string, unknown>[]
+) {
+  const sql = getDb()
+  await sql`
+    INSERT INTO report_files (id, project_id, file_type, is_previous, file_name, data)
+    VALUES (${id}, ${projectId}, ${fileType}, ${isPrevious}, ${fileName}, ${JSON.stringify(data)})
+    ON CONFLICT (project_id, file_type, is_previous) DO UPDATE
+      SET id = EXCLUDED.id, file_name = EXCLUDED.file_name, data = EXCLUDED.data
+  `
+}
+
+export async function deleteReportFile(id: string, userId: string) {
+  const sql = getDb()
+  await sql`
+    DELETE FROM report_files rf
+    USING report_projects rp
+    WHERE rf.id = ${id} AND rf.project_id = rp.id AND rp.user_id = ${userId}
+  `
+}
