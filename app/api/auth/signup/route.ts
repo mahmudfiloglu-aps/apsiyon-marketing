@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(password, 10)
     const user = await createUser(email, passwordHash, name)
-    const token = await createToken({ userId: user.id, email: user.email, name: user.name })
+    const token = await createToken({ userId: user.id, email: user.email, name: user.name, role: 'viewer' })
 
     const res = NextResponse.json({ success: true })
     const isProd = process.env.NODE_ENV === 'production'

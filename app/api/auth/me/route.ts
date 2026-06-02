@@ -5,6 +5,6 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ user: null }, { status: 401 })
   return NextResponse.json({
-    user: { name: session.name, email: session.email },
+    user: { name: session.name, email: session.email, role: session.role ?? 'viewer' },
   })
 }
