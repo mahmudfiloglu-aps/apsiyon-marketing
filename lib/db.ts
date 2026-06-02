@@ -193,6 +193,64 @@ export async function getRepLeads(userId: string, repName: string) {
   return rows
 }
 
+// ── Quality Analyses ───────────────────────────────────
+
+export async function createQualityAnalysesTable() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS quality_analyses (
+      id          VARCHAR(255) PRIMARY KEY,
+      user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      file_name   VARCHAR(255) NOT NULL,
+      total_count INTEGER NOT NULL DEFAULT 0,
+      results     JSONB,
+      created_at  TIMESTAMP DEFAULT NOW()
+    )
+  `
+}
+
+export async function saveQualityAnalysis(
+  id: string,
+  userId: string,
+  fileName: string,
+  totalCount: number,
+  results: unknown[]
+) {
+  const sql = getDb()
+  await createQualityAnalysesTable()
+  await sql`
+    INSERT INTO quality_analyses (id, user_id, file_name, total_count, results)
+    VALUES (${id}, ${userId}, ${fileName}, ${totalCount}, ${JSON.stringify(results)})
+    ON CONFLICT (id) DO UPDATE SET results = EXCLUDED.results
+  `
+}
+
+export async function listQualityAnalyses(userId: string) {
+  const sql = getDb()
+  await createQualityAnalysesTable()
+  return sql`
+    SELECT id, file_name, total_count, created_at
+    FROM quality_analyses
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `
+}
+
+export async function getQualityAnalysis(id: string, userId: string) {
+  const sql = getDb()
+  await createQualityAnalysesTable()
+  const result = await sql`
+    SELECT * FROM quality_analyses WHERE id = ${id} AND user_id = ${userId}
+  `
+  return result[0] ?? null
+}
+
+export async function deleteQualityAnalysis(id: string, userId: string) {
+  const sql = getDb()
+  await sql`DELETE FROM quality_analyses WHERE id = ${id} AND user_id = ${userId}`
+}
+
 // ── Analytics ──────────────────────────────────────────
 
 export async function getAnalytics(userId: string) {

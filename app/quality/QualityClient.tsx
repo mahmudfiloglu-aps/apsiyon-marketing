@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { parseLeadsFile } from '@/lib/parseLeads'
 import type { LeadRow } from '@/types/lead'
 import type { QualityResult } from '@/app/api/quality-analyze/route'
@@ -39,15 +40,40 @@ type SortKey = 'qualityScore' | 'tier' | 'name' | 'company' | 'rep' | 'campaign'
 type SortDir = 'asc' | 'desc'
 
 export default function QualityClient() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [phase, setPhase] = useState<'upload' | 'analyzing' | 'done'>('upload')
   const [rows, setRows] = useState<Row[]>([])
   const [fileName, setFileName] = useState('')
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('qualityScore')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const savedIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const historyId = searchParams.get('id')
+    if (!historyId) return
+    setLoading(true)
+    fetch(`/api/quality-analyses/${historyId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.analysis?.results) {
+          setRows(data.analysis.results as Row[])
+          setFileName(data.analysis.file_name)
+          savedIdRef.current = historyId
+          setPhase('done')
+        } else {
+          router.replace('/quality')
+        }
+      })
+      .catch(() => router.replace('/quality'))
+      .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleFile = async (file: File) => {
     setError('')
@@ -116,6 +142,18 @@ export default function QualityClient() {
     }
 
     setPhase('done')
+
+    // Save to DB
+    const id = savedIdRef.current ?? Date.now().toString()
+    savedIdRef.current = id
+    fetch('/api/quality-analyses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, fileName, totalCount: accumulated.length, results: accumulated }),
+    }).then(() => {
+      window.dispatchEvent(new Event('qualityHistoryUpdated'))
+      router.replace(`/quality?id=${id}`)
+    }).catch(() => {})
   }
 
   const handleSort = (key: SortKey) => {
@@ -167,6 +205,10 @@ export default function QualityClient() {
       {sortKey === k && <span className="text-blue-500">{sortDir === 'asc' ? '↑' : '↓'}</span>}
     </button>
   )
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-full"><p className="text-gray-400">Yükleniyor...</p></div>
+  }
 
   // ── Upload phase ────────────────────────────────────────
   if (phase === 'upload') {
@@ -231,7 +273,7 @@ export default function QualityClient() {
               ⬇ CSV İndir
             </button>
           )}
-          <button onClick={() => { setPhase('upload'); setRows([]); setFileName('') }}
+          <button onClick={() => { setPhase('upload'); setRows([]); setFileName(''); savedIdRef.current = null; router.push('/quality') }}
             className="border border-gray-300 text-gray-600 px-4 py-2 rounded-xl text-sm hover:bg-gray-50 transition-colors">
             ← Yeni Analiz
           </button>
