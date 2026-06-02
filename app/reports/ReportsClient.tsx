@@ -18,25 +18,8 @@ interface ReportTab {
 
 // ── CRM status classification ─────────────────────────
 
-const QUALIFIED_STATUSES = new Set([
-  'Firma kaydı oluşturuldu',
-  'Potansiyel Müşteri',
-  'Bilgi verildi',
-  'Müşteri',
-])
-
-const UNQUALIFIED_STATUSES = new Set([
-  'Alakasız',
-  'Kiralama istemiyor',
-  'İletişim Bilgisi Yok / Eksik / Hatalı',
-  'Mükerrer Kayıt',
-  'Kat Maliki',
-])
-
-function classifyStatus(durum: string): 'qualified' | 'unqualified' | 'pending' {
-  if (QUALIFIED_STATUSES.has(durum)) return 'qualified'
-  if (UNQUALIFIED_STATUSES.has(durum)) return 'unqualified'
-  return 'pending'
+function classifyStatus(durum: string): 'qualified' | 'unqualified' {
+  return durum === 'Uygun Bulundu' ? 'qualified' : 'unqualified'
 }
 
 // ── Source detection ──────────────────────────────────
@@ -70,7 +53,6 @@ interface CampaignRow {
   total: number
   qualified: number
   unqualified: number
-  pending: number
   qualRate: number
 }
 
@@ -78,19 +60,18 @@ interface CRMSummary {
   total: number
   qualified: number
   unqualified: number
-  pending: number
   qualRate: number
-  byStatus: { status: string; count: number; cls: 'qualified' | 'unqualified' | 'pending' }[]
+  byStatus: { status: string; count: number; cls: 'qualified' | 'unqualified' }[]
   byCampaign: CampaignRow[]
   bySource: { source: string; total: number; qualified: number; qualRate: number }[]
 }
 
 function buildCRMSummary(data: Record<string, string>[]): CRMSummary {
   const statusMap: Record<string, number> = {}
-  const campaignMap: Record<string, { source: string; total: number; qualified: number; unqualified: number; pending: number }> = {}
+  const campaignMap: Record<string, { source: string; total: number; qualified: number; unqualified: number }> = {}
   const sourceMap: Record<string, { total: number; qualified: number }> = {}
 
-  let total = 0, qualified = 0, unqualified = 0, pending = 0
+  let total = 0, qualified = 0, unqualified = 0
 
   for (const row of data) {
     const durum = row['Durumu'] ?? row['durumu'] ?? ''
@@ -100,16 +81,14 @@ function buildCRMSummary(data: Record<string, string>[]): CRMSummary {
 
     total++
     if (cls === 'qualified') qualified++
-    else if (cls === 'unqualified') unqualified++
-    else pending++
+    else unqualified++
 
     statusMap[durum] = (statusMap[durum] ?? 0) + 1
 
-    if (!campaignMap[kampanya]) campaignMap[kampanya] = { source: kaynak, total: 0, qualified: 0, unqualified: 0, pending: 0 }
+    if (!campaignMap[kampanya]) campaignMap[kampanya] = { source: kaynak, total: 0, qualified: 0, unqualified: 0 }
     campaignMap[kampanya].total++
     if (cls === 'qualified') campaignMap[kampanya].qualified++
-    else if (cls === 'unqualified') campaignMap[kampanya].unqualified++
-    else campaignMap[kampanya].pending++
+    else campaignMap[kampanya].unqualified++
 
     if (!sourceMap[kaynak]) sourceMap[kaynak] = { total: 0, qualified: 0 }
     sourceMap[kaynak].total++
@@ -129,7 +108,7 @@ function buildCRMSummary(data: Record<string, string>[]): CRMSummary {
     .sort((a, b) => b.total - a.total)
 
   return {
-    total, qualified, unqualified, pending,
+    total, qualified, unqualified,
     qualRate: total > 0 ? (qualified / total) * 100 : 0,
     byStatus, byCampaign, bySource,
   }
@@ -188,12 +167,11 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 
 // ── CRM View ──────────────────────────────────────────
 
-const CLS_COLORS: Record<'qualified' | 'unqualified' | 'pending', string> = {
+const CLS_COLORS: Record<'qualified' | 'unqualified', string> = {
   qualified: 'bg-green-100 text-green-700',
   unqualified: 'bg-red-100 text-red-700',
-  pending: 'bg-amber-100 text-amber-700',
 }
-const CLS_LABELS: Record<'qualified' | 'unqualified' | 'pending', string> = { qualified: 'Nitelikli', unqualified: 'Niteliksiz', pending: 'Beklemede' }
+const CLS_LABELS: Record<'qualified' | 'unqualified', string> = { qualified: 'Nitelikli', unqualified: 'Niteliksiz' }
 
 function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab }) {
   const summary = buildCRMSummary(report.data)
@@ -219,11 +197,10 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
   return (
     <div className="space-y-6">
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <StatCard label="Toplam Lead" value={fmt(summary.total)} />
         <StatCard label="Nitelikli Lead" value={fmt(summary.qualified)} sub={pct(summary.qualRate) + ' nitelik oranı'} color="green" />
         <StatCard label="Niteliksiz" value={fmt(summary.unqualified)} sub={pct(summary.total > 0 ? (summary.unqualified / summary.total) * 100 : 0)} color="red" />
-        <StatCard label="Beklemede" value={fmt(summary.pending)} sub={pct(summary.total > 0 ? (summary.pending / summary.total) * 100 : 0)} color="amber" />
       </div>
 
       {/* Tab selector */}
@@ -262,7 +239,6 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                   <th className="text-right px-3 py-3">Toplam</th>
                   <th className="text-right px-3 py-3 text-green-600">Nitelikli</th>
                   <th className="text-right px-3 py-3 text-red-500">Niteliksiz</th>
-                  <th className="text-right px-3 py-3 text-amber-500">Beklemede</th>
                   <th className="text-right px-3 py-3">Nitelik %</th>
                   {hasCost && <th className="text-right px-3 py-3">Harcama</th>}
                   {hasCost && <th className="text-right px-3 py-3">Lead Maliyeti</th>}
@@ -282,7 +258,6 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                       <td className="px-3 py-2.5 text-right font-semibold">{fmt(row.total)}</td>
                       <td className="px-3 py-2.5 text-right text-green-600 font-medium">{fmt(row.qualified)}</td>
                       <td className="px-3 py-2.5 text-right text-red-500">{fmt(row.unqualified)}</td>
-                      <td className="px-3 py-2.5 text-right text-amber-500">{fmt(row.pending)}</td>
                       <td className="px-3 py-2.5 text-right">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                           row.qualRate >= 30 ? 'bg-green-100 text-green-700' :
@@ -304,7 +279,6 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                   <td className="px-3 py-2.5 text-right">{fmt(summary.total)}</td>
                   <td className="px-3 py-2.5 text-right text-green-600">{fmt(summary.qualified)}</td>
                   <td className="px-3 py-2.5 text-right text-red-500">{fmt(summary.unqualified)}</td>
-                  <td className="px-3 py-2.5 text-right text-amber-500">{fmt(summary.pending)}</td>
                   <td className="px-3 py-2.5 text-right">{pct(summary.qualRate)}</td>
                   {hasCost && (() => {
                     const totalSpend = Object.values(costMap).reduce((a, b) => a + b, 0)
@@ -393,8 +367,7 @@ function CRMView({ report, costData }: { report: ReportTab; costData?: ReportTab
                     <div className="w-32 bg-slate-100 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${
-                          row.cls === 'qualified' ? 'bg-green-500' :
-                          row.cls === 'unqualified' ? 'bg-red-400' : 'bg-amber-400'
+                          row.cls === 'qualified' ? 'bg-green-500' : 'bg-red-400'
                         }`}
                         style={{ width: `${summary.total > 0 ? (row.count / summary.total) * 100 : 0}%` }}
                       />
