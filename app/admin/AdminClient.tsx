@@ -143,15 +143,33 @@ export default function AdminClient({ currentUserRole }: Props) {
                       <button
                         onClick={() => togglePerm(user.id, m.key, enabled)}
                         disabled={saving === key}
-                        className={`w-9 h-5 rounded-full transition-colors relative ${
-                          enabled ? 'bg-blue-500' : 'bg-slate-200'
-                        } disabled:opacity-50`}
                         title={enabled ? 'Aktif — devre dışı bırak' : 'Pasif — etkinleştir'}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          width: 36,
+                          height: 20,
+                          borderRadius: 999,
+                          padding: 2,
+                          border: 'none',
+                          cursor: 'pointer',
+                          transition: 'background 0.2s',
+                          background: enabled ? '#3b82f6' : '#cbd5e1',
+                          opacity: saving === key ? 0.5 : 1,
+                          flexShrink: 0,
+                        }}
                       >
                         <span
-                          className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                            enabled ? 'translate-x-4' : 'translate-x-0.5'
-                          }`}
+                          style={{
+                            display: 'block',
+                            width: 16,
+                            height: 16,
+                            borderRadius: '50%',
+                            background: '#fff',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                            transition: 'transform 0.2s',
+                            transform: enabled ? 'translateX(16px)' : 'translateX(0)',
+                          }}
                         />
                       </button>
                     </td>
