@@ -94,7 +94,7 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
     import('papaparse').then(({ default: Papa }) => {
       const reader = new FileReader()
       reader.onload = (e) => {
-        // Strip BOM and normalise line endings
+        // Strip BOM (U+FEFF) and normalise line endings
         const raw = (e.target?.result as string).replace(/^﻿/, '')
         const lines = raw.split(/\r?\n/)
         const firstLine = lines[0].trim()
@@ -935,9 +935,10 @@ function FileSlot({ projectId, slot, file, prevFile, onUploaded, onDeleted }: {
   file: ReportFile | undefined
   prevFile: ReportFile | undefined
   onUploaded: () => void
-  onDeleted: (id: string) => void
+  onDeleted: () => void
 }) {
   const [uploading, setUploading] = useState<'curr' | 'prev' | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const currRef = useRef<HTMLInputElement>(null)
   const prevRef = useRef<HTMLInputElement>(null)
 
@@ -946,20 +947,25 @@ function FileSlot({ projectId, slot, file, prevFile, onUploaded, onDeleted }: {
     try {
       const data = await parseFile(f)
       const id = crypto.randomUUID()
-      await fetch(`/api/report-projects/${projectId}/files`, {
+      const res = await fetch(`/api/report-projects/${projectId}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, fileType: slot.type, isPrevious, fileName: f.name, data }),
       })
-      onUploaded()
+      if (res.ok) onUploaded()
     } finally {
       setUploading(null)
     }
   }
 
   const del = async (id: string) => {
-    await fetch(`/api/report-projects/${projectId}/files/${id}`, { method: 'DELETE' })
-    onDeleted(id)
+    setDeleting(id)
+    try {
+      const res = await fetch(`/api/report-projects/${projectId}/files/${id}`, { method: 'DELETE' })
+      if (res.ok) onDeleted()
+    } finally {
+      setDeleting(null)
+    }
   }
 
   return (
@@ -973,11 +979,15 @@ function FileSlot({ projectId, slot, file, prevFile, onUploaded, onDeleted }: {
         {file ? (
           <div className="flex items-center gap-1 flex-1 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
             <span className="text-[10px] text-green-700 truncate flex-1">{file.file_name}</span>
-            <button onClick={() => del(file.id)} className="text-slate-300 hover:text-red-400 text-xs ml-1">✕</button>
+            <button
+              onClick={(e) => { e.stopPropagation(); del(file.id) }}
+              disabled={deleting === file.id}
+              className="text-slate-300 hover:text-red-400 text-xs ml-1 disabled:opacity-40 shrink-0"
+            >{deleting === file.id ? '…' : '✕'}</button>
           </div>
         ) : (
           <>
-            <input ref={currRef} type="file" accept={slot.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f, false) }} />
+            <input ref={currRef} type="file" accept={slot.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { upload(f, false); e.target.value = '' } }} />
             <button onClick={() => currRef.current?.click()} disabled={uploading === 'curr'}
               className="flex-1 text-[10px] border border-dashed border-slate-300 hover:border-blue-400 text-slate-500 hover:text-blue-600 rounded-lg px-2 py-1 transition-colors disabled:opacity-50">
               {uploading === 'curr' ? 'Yükleniyor...' : '+ Yükle'}
@@ -992,11 +1002,15 @@ function FileSlot({ projectId, slot, file, prevFile, onUploaded, onDeleted }: {
         {prevFile ? (
           <div className="flex items-center gap-1 flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
             <span className="text-[10px] text-slate-500 truncate flex-1">{prevFile.file_name}</span>
-            <button onClick={() => del(prevFile.id)} className="text-slate-300 hover:text-red-400 text-xs ml-1">✕</button>
+            <button
+              onClick={(e) => { e.stopPropagation(); del(prevFile.id) }}
+              disabled={deleting === prevFile.id}
+              className="text-slate-300 hover:text-red-400 text-xs ml-1 disabled:opacity-40 shrink-0"
+            >{deleting === prevFile.id ? '…' : '✕'}</button>
           </div>
         ) : (
           <>
-            <input ref={prevRef} type="file" accept={slot.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f, true) }} />
+            <input ref={prevRef} type="file" accept={slot.accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { upload(f, true); e.target.value = '' } }} />
             <button onClick={() => prevRef.current?.click()} disabled={uploading === 'prev'}
               className="flex-1 text-[10px] border border-dashed border-slate-200 text-slate-400 hover:border-slate-400 rounded-lg px-2 py-1 transition-colors disabled:opacity-50">
               {uploading === 'prev' ? 'Yükleniyor...' : '+ Önceki dönem'}
@@ -1144,7 +1158,8 @@ export default function ReportsClient() {
   }
 
   const refreshProject = useCallback(async (projectId: string) => {
-    const r = await fetch(`/api/report-projects/${projectId}`)
+    const r = await fetch(`/api/report-projects/${projectId}`, { cache: 'no-store' })
+    if (!r.ok) return
     const { files } = await r.json()
     setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, files: files ?? [] } : p))
   }, [])
