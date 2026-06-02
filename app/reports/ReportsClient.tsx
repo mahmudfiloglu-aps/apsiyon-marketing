@@ -387,16 +387,35 @@ interface SummaryTotals {
   firma: number
 }
 
+function pickCol(row: Record<string, string>, ...keywords: string[]): string {
+  // Exact key match first
+  for (const kw of keywords) {
+    if (kw in row) return row[kw]
+  }
+  // Partial: key contains any keyword (case-insensitive)
+  const keys = Object.keys(row)
+  for (const kw of keywords) {
+    const key = keys.find((k) => k.toLowerCase().includes(kw.toLowerCase()))
+    if (key) return row[key]
+  }
+  return ''
+}
+
 function buildSummaryTotals(rows: Record<string, string>[]): SummaryTotals {
+  // If there's an explicit TOPLAM row use it as single source of truth to avoid double-counting
+  const totalRow = rows.find((r) =>
+    Object.values(r).some((v) => /^toplam$/i.test(String(v ?? '').trim()))
+  )
+  const src = totalRow ? [totalRow] : rows.filter((r) =>
+    !Object.values(r).some((v) => /^toplam/i.test(String(v ?? '').trim()))
+  )
+
   let total = 0, qualified = 0, unqualified = 0, firma = 0
-  for (const r of rows) {
-    // Skip TOPLAM / Toplam aggregate rows so they don't double-count channel rows
-    const isTotalRow = Object.values(r).some((v) => /^toplam/i.test(String(v ?? '').trim()))
-    if (isTotalRow) continue
-    total       += num(r['Lead'] ?? r['Toplam Lead'] ?? '')
-    qualified   += num(r['Nitelikli Lead'] ?? '')
-    unqualified += num(r['Niteliksiz Lead'] ?? '')
-    firma       += num(r['Firma'] ?? '')
+  for (const r of src) {
+    total       += num(pickCol(r, 'Lead', 'Toplam Lead', 'Lead Sayısı', 'Leads'))
+    qualified   += num(pickCol(r, 'Nitelikli Lead', 'Nitelikli', 'Qualified'))
+    unqualified += num(pickCol(r, 'Niteliksiz Lead', 'Niteliksiz', 'Unqualified'))
+    firma       += num(pickCol(r, 'Firma', 'Firma Sayısı'))
   }
   return { total, qualified, unqualified, firma }
 }
@@ -418,9 +437,9 @@ function LeadReportTab({ project }: { project: Project }) {
   const summTotals     = summCurr ? buildSummaryTotals(summCurr.data) : null
   const prevSummTotals = summPrev ? buildSummaryTotals(summPrev.data) : null
 
-  const totalLead      = summTotals?.total      ?? detailMetrics?.total      ?? 0
-  const totalQualified = summTotals?.qualified   ?? detailMetrics?.qualified  ?? 0
-  const totalUnqual    = summTotals?.unqualified ?? detailMetrics?.unqualified ?? 0
+  const totalLead      = summTotals?.total      || detailMetrics?.total      || 0
+  const totalQualified = summTotals?.qualified   || detailMetrics?.qualified  || 0
+  const totalUnqual    = summTotals?.unqualified || detailMetrics?.unqualified || 0
   const totalFirma     = summTotals?.firma       ?? 0
   const qualRate       = totalLead > 0 ? (totalQualified / totalLead) * 100 : 0
 
