@@ -37,11 +37,16 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 px-4">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 w-full max-w-sm">
+        <div className="flex justify-center mb-6">
+          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
+            <span className="text-white font-bold text-xl">A</span>
+          </div>
+        </div>
+
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Kayıt Ol</h1>
-          <p className="text-sm text-gray-500 mt-1">ApsiyonLead</p>
+          <h1 className="text-2xl font-bold text-slate-900">Kayıt Ol</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -54,7 +59,7 @@ export default function SignUpPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Ali Yılmaz"
             />
           </div>
@@ -67,7 +72,7 @@ export default function SignUpPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="ornek@apsiyon.com"
             />
           </div>
@@ -80,7 +85,7 @@ export default function SignUpPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="En az 6 karakter"
             />
           </div>
@@ -94,7 +99,7 @@ export default function SignUpPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2.5 rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-sm"
           >
             {loading ? 'Kayıt yapılıyor...' : 'Kayıt Ol'}
           </button>
