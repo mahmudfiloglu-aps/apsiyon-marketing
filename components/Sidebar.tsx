@@ -89,6 +89,16 @@ export default function Sidebar() {
           📊 Analitik
         </Link>
         <Link
+          href="/quality"
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            pathname === '/quality'
+              ? 'bg-blue-50 text-blue-600'
+              : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          ⭐ Lead Kalitesi
+        </Link>
+        <Link
           href="/settings"
           className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
             pathname === '/settings'
