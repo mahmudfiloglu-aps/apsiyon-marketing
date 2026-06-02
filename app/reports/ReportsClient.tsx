@@ -318,26 +318,61 @@ function QualBadge({ rate }: { rate: number }) {
   return <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${cls}`}>{pct(rate)}</span>
 }
 
+// ─── Summary file totals ──────────────────────────────────────────────────────
+
+interface SummaryTotals {
+  total: number
+  qualified: number
+  unqualified: number
+  firma: number
+}
+
+function buildSummaryTotals(rows: Record<string, string>[]): SummaryTotals {
+  let total = 0, qualified = 0, unqualified = 0, firma = 0
+  for (const r of rows) {
+    total      += num(r['Lead'])
+    qualified  += num(r['Nitelikli Lead'])
+    unqualified += num(r['Niteliksiz Lead'])
+    firma      += num(r['Firma'])
+  }
+  return { total, qualified, unqualified, firma }
+}
+
 // ─── Lead Report Tab ──────────────────────────────────────────────────────────
 
 function LeadReportTab({ project }: { project: Project }) {
-  const curr = project.files.find((f) => f.file_type === 'lead_detail' && !f.is_previous)
-  const prev = project.files.find((f) => f.file_type === 'lead_detail' && f.is_previous)
+  const curr     = project.files.find((f) => f.file_type === 'lead_detail'  && !f.is_previous)
+  const prev     = project.files.find((f) => f.file_type === 'lead_detail'  && f.is_previous)
   const summCurr = project.files.find((f) => f.file_type === 'lead_summary' && !f.is_previous)
+  const summPrev = project.files.find((f) => f.file_type === 'lead_summary' && f.is_previous)
 
-  if (!curr) return <EmptySlot label="Lead Detaylı raporu yükleyin" />
+  if (!curr && !summCurr) return <EmptySlot label="Lead Detaylı veya Lead Özeti dosyası yükleyin" />
 
-  const metrics = buildLeadMetrics(curr.data)
-  const prevMetrics = prev ? buildLeadMetrics(prev.data) : null
-  const hasPrev = !!prevMetrics
+  const detailMetrics = curr ? buildLeadMetrics(curr.data) : null
+  const prevDetailMetrics = prev ? buildLeadMetrics(prev.data) : null
+
+  // Authoritative totals: summary file takes precedence over detail calculation
+  const summTotals     = summCurr ? buildSummaryTotals(summCurr.data) : null
+  const prevSummTotals = summPrev ? buildSummaryTotals(summPrev.data) : null
+
+  const totalLead      = summTotals?.total      ?? detailMetrics?.total      ?? 0
+  const totalQualified = summTotals?.qualified   ?? detailMetrics?.qualified  ?? 0
+  const totalUnqual    = summTotals?.unqualified ?? detailMetrics?.unqualified ?? 0
+  const totalFirma     = summTotals?.firma       ?? 0
+  const qualRate       = totalLead > 0 ? (totalQualified / totalLead) * 100 : 0
+
+  const prevTotal      = prevSummTotals?.total      ?? prevDetailMetrics?.total      ?? null
+  const prevQualified  = prevSummTotals?.qualified   ?? prevDetailMetrics?.qualified  ?? null
+
+  const hasPrev = prevTotal !== null
   const [view, setView] = useState<'kampanya' | 'kanal'>('kanal')
   const [search, setSearch] = useState('')
 
-  const filtered = metrics.campaigns.filter((c) => !search || c.campaign.toLowerCase().includes(search.toLowerCase()))
+  const filtered = (detailMetrics?.campaigns ?? []).filter((c) => !search || c.campaign.toLowerCase().includes(search.toLowerCase()))
 
   return (
     <div className="space-y-3">
-      {/* Summary strip */}
+      {/* Summary strip — numbers always from summary file when available */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table className="w-full border-collapse">
           <thead>
@@ -346,25 +381,25 @@ function LeadReportTab({ project }: { project: Project }) {
               <TH>Nitelikli</TH>
               <TH>Niteliksiz</TH>
               <TH>Nitelik Oranı</TH>
-              {summCurr && <TH>Firma</TH>}
+              {totalFirma > 0 && <TH>Firma</TH>}
+              {summCurr && <span className="hidden" />}
             </tr>
           </thead>
           <tbody>
             <tr>
               <TD bold>
-                {fmt(metrics.total)}
-                {hasPrev && <DeltaBadge curr={metrics.total} prev={prevMetrics!.total} />}
+                {fmt(totalLead)}
+                {hasPrev && prevTotal !== null && <DeltaBadge curr={totalLead} prev={prevTotal} />}
               </TD>
               <TD bold green>
-                {fmt(metrics.qualified)}
-                {hasPrev && <DeltaBadge curr={metrics.qualified} prev={prevMetrics!.qualified} />}
+                {fmt(totalQualified)}
+                {hasPrev && prevQualified !== null && <DeltaBadge curr={totalQualified} prev={prevQualified} />}
               </TD>
               <TD bold red>
-                {fmt(metrics.unqualified)}
-                {hasPrev && <DeltaBadge curr={metrics.unqualified} prev={prevMetrics!.unqualified} />}
+                {fmt(totalUnqual)}
               </TD>
-              <TD><QualBadge rate={metrics.qualRate} /></TD>
-              {summCurr && <TD bold>{summCurr.data[3] ? fmt(num(summCurr.data[3]['Firma'])) : '—'}</TD>}
+              <TD><QualBadge rate={qualRate} /></TD>
+              {totalFirma > 0 && <TD bold>{fmt(totalFirma)}</TD>}
             </tr>
           </tbody>
         </table>
@@ -380,8 +415,8 @@ function LeadReportTab({ project }: { project: Project }) {
         ))}
       </div>
 
-      {/* Channel view */}
-      {view === 'kanal' && (
+      {/* Channel view — breakdown from detail file, totals from summary */}
+      {view === 'kanal' && detailMetrics && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <table className="w-full border-collapse">
             <thead>
@@ -396,8 +431,8 @@ function LeadReportTab({ project }: { project: Project }) {
               </tr>
             </thead>
             <tbody>
-              {metrics.channels.map((ch) => {
-                const p = prevMetrics?.channels.find((c) => c.channel === ch.channel)
+              {detailMetrics.channels.map((ch) => {
+                const p = prevDetailMetrics?.channels.find((c) => c.channel === ch.channel)
                 return (
                   <tr key={ch.channel} className="hover:bg-slate-50/50">
                     <TD bold>{ch.channel}</TD>
@@ -410,22 +445,26 @@ function LeadReportTab({ project }: { project: Project }) {
                   </tr>
                 )
               })}
+              {/* Toplam satırı: özet dosyası varsa ondan al */}
               <tr className="bg-slate-50 border-t-2 border-slate-200">
                 <TD bold>TOPLAM</TD>
-                <TD right bold>{fmt(metrics.total)}</TD>
-                <TD right bold green>{fmt(metrics.qualified)}</TD>
-                <TD right bold red>{fmt(metrics.unqualified)}</TD>
-                <TD right><QualBadge rate={metrics.qualRate} /></TD>
-                {hasPrev && <TD right bold>{fmt(prevMetrics!.qualified)}</TD>}
-                {hasPrev && <TD right><DeltaBadge curr={metrics.qualified} prev={prevMetrics!.qualified} /></TD>}
+                <TD right bold>{fmt(totalLead)}</TD>
+                <TD right bold green>{fmt(totalQualified)}</TD>
+                <TD right bold red>{fmt(totalUnqual)}</TD>
+                <TD right><QualBadge rate={qualRate} /></TD>
+                {hasPrev && prevQualified !== null && <TD right bold>{fmt(prevQualified)}</TD>}
+                {hasPrev && prevQualified !== null && <TD right><DeltaBadge curr={totalQualified} prev={prevQualified} /></TD>}
               </tr>
             </tbody>
           </table>
         </div>
       )}
+      {view === 'kanal' && !detailMetrics && (
+        <EmptySlot label="Kanal dağılımı için Lead Detaylı dosyası gerekli" />
+      )}
 
       {/* Campaign view */}
-      {view === 'kampanya' && (
+      {view === 'kampanya' && detailMetrics && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Kampanya ara..." className="text-xs border border-slate-200 rounded-lg px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 w-56" />
@@ -446,7 +485,7 @@ function LeadReportTab({ project }: { project: Project }) {
               </thead>
               <tbody>
                 {filtered.map((c) => {
-                  const p = prevMetrics?.campaigns.find((x) => x.campaign === c.campaign)
+                  const p = prevDetailMetrics?.campaigns.find((x) => x.campaign === c.campaign)
                   return (
                     <tr key={c.campaign} className="hover:bg-slate-50/50">
                       <TD><span className="truncate max-w-[200px] block" title={c.campaign}>{c.campaign}</span></TD>
@@ -461,16 +500,19 @@ function LeadReportTab({ project }: { project: Project }) {
                 })}
                 <tr className="bg-slate-50 border-t-2 border-slate-200">
                   <TD bold colSpan={2}>TOPLAM</TD>
-                  <TD right bold>{fmt(metrics.total)}</TD>
-                  <TD right bold green>{fmt(metrics.qualified)}</TD>
-                  <TD right bold red>{fmt(metrics.unqualified)}</TD>
-                  <TD right><QualBadge rate={metrics.qualRate} /></TD>
-                  {hasPrev && <TD right bold>{fmt(prevMetrics!.qualified)}</TD>}
+                  <TD right bold>{fmt(totalLead)}</TD>
+                  <TD right bold green>{fmt(totalQualified)}</TD>
+                  <TD right bold red>{fmt(totalUnqual)}</TD>
+                  <TD right><QualBadge rate={qualRate} /></TD>
+                  {hasPrev && prevQualified !== null && <TD right bold>{fmt(prevQualified)}</TD>}
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
+      )}
+      {view === 'kampanya' && !detailMetrics && (
+        <EmptySlot label="Kampanya dağılımı için Lead Detaylı dosyası gerekli" />
       )}
     </div>
   )
@@ -489,10 +531,20 @@ function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }
   const prevMetrics = prev ? (type === 'google' ? buildGoogleMetrics(prev.data) : buildMetaMetrics(prev.data)) : null
   const hasPrev = !!prevMetrics
 
-  // Cross-reference with lead data
+  // Cross-reference with lead data — qualified count from summary file if available
+  const leadSummCurr = project.files.find((f) => f.file_type === 'lead_summary' && !f.is_previous)
   const leadMetrics = leadCurr ? buildLeadMetrics(leadCurr.data) : null
+  const summTotalsAds = leadSummCurr ? buildSummaryTotals(leadSummCurr.data) : null
   const channelName = type === 'google' ? 'Google Ads' : 'Meta / Facebook'
-  const channelLeads = leadMetrics?.channels.find((c) => c.channel === channelName)
+  const channelLeadsRaw = leadMetrics?.channels.find((c) => c.channel === channelName)
+  // Use summary totals for overall qualified if available, keep channel-level from detail
+  const channelLeads = channelLeadsRaw ? {
+    ...channelLeadsRaw,
+    // For single-channel projects where all leads are this channel, use summary qualified
+    qualified: (summTotalsAds && leadMetrics && leadMetrics.channels.length === 1)
+      ? summTotalsAds.qualified
+      : channelLeadsRaw.qualified,
+  } : null
 
   const totSpend = metrics.reduce((s, r) => s + r.spend, 0)
   const totImpr = metrics.reduce((s, r) => s + r.impressions, 0)
