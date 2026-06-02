@@ -112,7 +112,7 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
           complete: (r) => {
             const rows = (r.data as Record<string, string>[]).filter((row) => {
               const camp = String(row['Kampanya'] ?? row['Kampanya Adı'] ?? '')
-              return !camp.startsWith('Toplam') && camp !== ''
+              return !camp.startsWith('Toplam') && camp !== '' && camp !== '--'
             })
             resolve(rows)
           },
@@ -283,7 +283,7 @@ interface CostRow {
 
 function buildGoogleCostMetrics(rows: Record<string, string>[]): CostRow[] {
   return rows
-    .filter((r) => r['Kampanya'] && r['Kampanya'].trim() !== '' && !r['Kampanya'].startsWith('Toplam'))
+    .filter((r) => r['Kampanya'] && r['Kampanya'].trim() !== '' && r['Kampanya'].trim() !== '--' && !r['Kampanya'].startsWith('Toplam'))
     .map((r) => {
       const spend = numTR(r['Maliyet'])
       const clicks = numTR(r['Tıklamalar'])
@@ -803,48 +803,69 @@ function MetaAdsTab({ project }: { project: Project }) {
 // ─── Cost Tab ─────────────────────────────────────────────────────────────────
 
 function CostTab({ project }: { project: Project }) {
-  const curr = project.files.find((f) => f.file_type === 'google' && !f.is_previous)
-  const prev = project.files.find((f) => f.file_type === 'google' && f.is_previous)
+  const gCurr = project.files.find((f) => f.file_type === 'google' && !f.is_previous)
+  const gPrev = project.files.find((f) => f.file_type === 'google' && f.is_previous)
+  const mCurr = project.files.find((f) => f.file_type === 'meta'   && !f.is_previous)
+  const mPrev = project.files.find((f) => f.file_type === 'meta'   && f.is_previous)
 
-  if (!curr) return <EmptySlot label="Google Ads CSV dosyasını yükleyin" />
+  if (!gCurr && !mCurr) return <EmptySlot label="Google Ads veya Meta Ads CSV dosyasını yükleyin" />
 
-  const rows = buildGoogleCostMetrics(curr.data)
-  const prevRows = prev ? buildGoogleCostMetrics(prev.data) : null
+  const gRows    = gCurr ? buildGoogleCostMetrics(gCurr.data) : []
+  const gPrevRows = gPrev ? buildGoogleCostMetrics(gPrev.data) : null
+  const mGroups   = mCurr ? buildMetaHierarchy(mCurr.data) : []
+  const mPrevGroups = mPrev ? buildMetaHierarchy(mPrev.data) : null
 
-  const totSpend = rows.reduce((s, r) => s + r.spend, 0)
-  const totImpr = rows.reduce((s, r) => s + r.impressions, 0)
-  const totClicks = rows.reduce((s, r) => s + r.clicks, 0)
-  const totConv = rows.reduce((s, r) => s + r.conversions, 0)
-  const avgCTR = totImpr > 0 ? (totClicks / totImpr) * 100 : 0
+  const gSpend  = gRows.reduce((s, r) => s + r.spend, 0)
+  const gImpr   = gRows.reduce((s, r) => s + r.impressions, 0)
+  const gClicks = gRows.reduce((s, r) => s + r.clicks, 0)
+  const gConv   = gRows.reduce((s, r) => s + r.conversions, 0)
+
+  const mSpend  = mGroups.reduce((s, g) => s + g.spend, 0)
+  const mImpr   = mGroups.reduce((s, g) => s + g.impressions, 0)
+  const mClicks = mGroups.reduce((s, g) => s + g.clicks, 0)
+  const mConv   = mGroups.reduce((s, g) => s + g.conversions, 0)
+
+  const totSpend  = gSpend + mSpend
+  const totImpr   = gImpr  + mImpr
+  const totClicks = gClicks + mClicks
+  const totConv   = gConv  + mConv
+  const avgCTR    = totImpr > 0 ? (totClicks / totImpr) * 100 : 0
+
+  const prevTotSpend = (gPrevRows ? gPrevRows.reduce((s, r) => s + r.spend, 0) : 0)
+                     + (mPrevGroups ? mPrevGroups.reduce((s, g) => s + g.spend, 0) : 0)
 
   return (
     <div className="space-y-3">
-      {/* Summary strip */}
+      {/* Combined summary strip */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               <TH>Toplam Harcama</TH>
+              {gCurr && mCurr && <TH right>Google</TH>}
+              {gCurr && mCurr && <TH right>Meta</TH>}
               <TH right>Gösterim</TH>
               <TH right>Tıklama</TH>
               <TH right>Ort. CTR</TH>
               <TH right>Dönüşüm</TH>
               {totConv > 0 && <TH right>Dönüşüm Başı</TH>}
-              {prevRows && <TH right>Önceki Harcama</TH>}
+              {(gPrevRows || mPrevGroups) && <TH right>Önceki Harcama</TH>}
             </tr>
           </thead>
           <tbody>
             <tr>
               <TD bold>{cur(totSpend)}</TD>
+              {gCurr && mCurr && <TD right>{cur(gSpend)}</TD>}
+              {gCurr && mCurr && <TD right>{cur(mSpend)}</TD>}
               <TD right>{fmt(totImpr)}</TD>
               <TD right>{fmt(totClicks)}</TD>
               <TD right>{pct(avgCTR)}</TD>
               <TD right bold>{fmt(totConv, 2)}</TD>
               {totConv > 0 && <TD right bold>{cur(totSpend / totConv)}</TD>}
-              {prevRows && (
+              {(gPrevRows || mPrevGroups) && (
                 <TD right bold>
-                  {cur(prevRows.reduce((s, r) => s + r.spend, 0))}
-                  <DeltaBadge curr={totSpend} prev={prevRows.reduce((s, r) => s + r.spend, 0)} />
+                  {cur(prevTotSpend)}
+                  <DeltaBadge curr={totSpend} prev={prevTotSpend} />
                 </TD>
               )}
             </tr>
@@ -852,69 +873,125 @@ function CostTab({ project }: { project: Project }) {
         </table>
       </div>
 
-      {/* Campaign table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <TH>Kampanya</TH>
-                <TH>Durum</TH>
-                <TH right>Harcama</TH>
-                <TH right>Gösterim</TH>
-                <TH right>Tıklama</TH>
-                <TH right>CTR %</TH>
-                <TH right>Ort. TBM</TH>
-                <TH right>Dönüşüm</TH>
-                <TH right>Dönüşüm Başı</TH>
-                {prevRows && <TH right>Önceki Harcama</TH>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const p = prevRows?.find((x) => x.campaign === r.campaign)
-                const isActive = r.status === 'Etkin'
-                return (
-                  <tr key={r.campaign} className="hover:bg-slate-50/50">
-                    <TD>
-                      <span className="truncate max-w-[220px] block font-medium" title={r.campaign}>{r.campaign}</span>
-                    </TD>
-                    <TD>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                        {r.status || '—'}
-                      </span>
-                    </TD>
-                    <TD right bold>{cur(r.spend)}</TD>
-                    <TD right>{fmt(r.impressions)}</TD>
-                    <TD right>{fmt(r.clicks)}</TD>
-                    <TD right>{pct(r.ctr)}</TD>
-                    <TD right>{cur(r.cpc)}</TD>
-                    <TD right>{fmt(r.conversions, 2)}</TD>
-                    <TD right>{r.cpa > 0 ? cur(r.cpa) : '—'}</TD>
-                    {prevRows && (
-                      <TD right>
-                        {p ? cur(p.spend) : '—'}
-                        {p ? <DeltaBadge curr={r.spend} prev={p.spend} /> : ''}
+      {/* Google campaign table */}
+      {gCurr && gRows.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-700">🔵 Google Ads Kampanyaları</span>
+            <span className="text-[10px] text-slate-400">{gRows.length} kampanya · {cur(gSpend)}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <TH>Kampanya</TH>
+                  <TH>Durum</TH>
+                  <TH right>Harcama</TH>
+                  <TH right>Gösterim</TH>
+                  <TH right>Tıklama</TH>
+                  <TH right>CTR %</TH>
+                  <TH right>Ort. TBM</TH>
+                  <TH right>Dönüşüm</TH>
+                  <TH right>Dönüşüm Başı</TH>
+                  {gPrevRows && <TH right>Önceki Harcama</TH>}
+                </tr>
+              </thead>
+              <tbody>
+                {gRows.map((r) => {
+                  const p = gPrevRows?.find((x) => x.campaign === r.campaign)
+                  const isActive = r.status === 'Etkin'
+                  return (
+                    <tr key={r.campaign} className="hover:bg-slate-50/50">
+                      <TD><span className="truncate max-w-[220px] block font-medium" title={r.campaign}>{r.campaign}</span></TD>
+                      <TD>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {r.status || '—'}
+                        </span>
                       </TD>
-                    )}
-                  </tr>
-                )
-              })}
-              <tr className="bg-slate-50 border-t-2 border-slate-200">
-                <TD bold colSpan={2}>TOPLAM</TD>
-                <TD right bold>{cur(totSpend)}</TD>
-                <TD right bold>{fmt(totImpr)}</TD>
-                <TD right bold>{fmt(totClicks)}</TD>
-                <TD right bold>{pct(avgCTR)}</TD>
-                <TD right bold>{totClicks > 0 ? cur(totSpend / totClicks) : '—'}</TD>
-                <TD right bold>{fmt(totConv, 2)}</TD>
-                <TD right bold>{totConv > 0 ? cur(totSpend / totConv) : '—'}</TD>
-                {prevRows && <TD right bold>{cur(prevRows.reduce((s, r) => s + r.spend, 0))}</TD>}
-              </tr>
-            </tbody>
-          </table>
+                      <TD right bold>{cur(r.spend)}</TD>
+                      <TD right>{fmt(r.impressions)}</TD>
+                      <TD right>{fmt(r.clicks)}</TD>
+                      <TD right>{pct(r.ctr)}</TD>
+                      <TD right>{cur(r.cpc)}</TD>
+                      <TD right>{fmt(r.conversions, 2)}</TD>
+                      <TD right>{r.cpa > 0 ? cur(r.cpa) : '—'}</TD>
+                      {gPrevRows && <TD right>{p ? cur(p.spend) : '—'}{p ? <DeltaBadge curr={r.spend} prev={p.spend} /> : ''}</TD>}
+                    </tr>
+                  )
+                })}
+                <tr className="bg-slate-50 border-t-2 border-slate-200">
+                  <TD bold colSpan={2}>TOPLAM</TD>
+                  <TD right bold>{cur(gSpend)}</TD>
+                  <TD right bold>{fmt(gImpr)}</TD>
+                  <TD right bold>{fmt(gClicks)}</TD>
+                  <TD right bold>{gImpr > 0 ? pct((gClicks / gImpr) * 100) : '—'}</TD>
+                  <TD right bold>{gClicks > 0 ? cur(gSpend / gClicks) : '—'}</TD>
+                  <TD right bold>{fmt(gConv, 2)}</TD>
+                  <TD right bold>{gConv > 0 ? cur(gSpend / gConv) : '—'}</TD>
+                  {gPrevRows && <TD right bold>{cur(gPrevRows.reduce((s, r) => s + r.spend, 0))}</TD>}
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Meta campaign table */}
+      {mCurr && mGroups.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-700">🔷 Meta Ads Kampanyaları</span>
+            <span className="text-[10px] text-slate-400">{mGroups.length} kampanya · {cur(mSpend)}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <TH>Kampanya</TH>
+                  <TH right>Harcama</TH>
+                  <TH right>Gösterim</TH>
+                  <TH right>Tıklama</TH>
+                  <TH right>CTR %</TH>
+                  <TH right>Ort. TBM</TH>
+                  <TH right>Sonuç</TH>
+                  <TH right>Sonuç Başı</TH>
+                  {mPrevGroups && <TH right>Önceki Harcama</TH>}
+                </tr>
+              </thead>
+              <tbody>
+                {mGroups.map((g) => {
+                  const pg = mPrevGroups?.find((x) => x.campaign === g.campaign)
+                  const cpa = g.conversions > 0 ? g.spend / g.conversions : 0
+                  return (
+                    <tr key={g.campaign} className="hover:bg-slate-50/50">
+                      <TD><span className="truncate max-w-[220px] block font-medium" title={g.campaign}>{g.campaign}</span></TD>
+                      <TD right bold>{cur(g.spend)}</TD>
+                      <TD right>{fmt(g.impressions)}</TD>
+                      <TD right>{fmt(g.clicks)}</TD>
+                      <TD right>{pct(g.ctr)}</TD>
+                      <TD right>{cur(g.cpc)}</TD>
+                      <TD right>{fmt(g.conversions)}</TD>
+                      <TD right>{cpa > 0 ? cur(cpa) : '—'}</TD>
+                      {mPrevGroups && <TD right>{pg ? cur(pg.spend) : '—'}{pg ? <DeltaBadge curr={g.spend} prev={pg.spend} /> : ''}</TD>}
+                    </tr>
+                  )
+                })}
+                <tr className="bg-slate-50 border-t-2 border-slate-200">
+                  <TD bold>TOPLAM</TD>
+                  <TD right bold>{cur(mSpend)}</TD>
+                  <TD right bold>{fmt(mImpr)}</TD>
+                  <TD right bold>{fmt(mClicks)}</TD>
+                  <TD right bold>{mImpr > 0 ? pct((mClicks / mImpr) * 100) : '—'}</TD>
+                  <TD right bold>{mClicks > 0 ? cur(mSpend / mClicks) : '—'}</TD>
+                  <TD right bold>{fmt(mConv)}</TD>
+                  <TD right bold>{mConv > 0 ? cur(mSpend / mConv) : '—'}</TD>
+                  {mPrevGroups && <TD right bold>{cur(mPrevGroups.reduce((s, g) => s + g.spend, 0))}</TD>}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1032,7 +1109,7 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
   const hasLead = project.files.some((f) => f.file_type === 'lead_detail' && !f.is_previous)
   const hasGoogle = project.files.some((f) => f.file_type === 'google' && !f.is_previous)
   const hasMeta = project.files.some((f) => f.file_type === 'meta' && !f.is_previous)
-  const hasCost = project.files.some((f) => f.file_type === 'google' && !f.is_previous)
+  const hasCost = project.files.some((f) => (f.file_type === 'google' || f.file_type === 'meta') && !f.is_previous)
 
   // Close export dropdown on outside click
   useEffect(() => {
