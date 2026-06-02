@@ -390,10 +390,13 @@ interface SummaryTotals {
 function buildSummaryTotals(rows: Record<string, string>[]): SummaryTotals {
   let total = 0, qualified = 0, unqualified = 0, firma = 0
   for (const r of rows) {
-    total      += num(r['Lead'])
-    qualified  += num(r['Nitelikli Lead'])
-    unqualified += num(r['Niteliksiz Lead'])
-    firma      += num(r['Firma'])
+    // Skip TOPLAM / Toplam aggregate rows so they don't double-count channel rows
+    const isTotalRow = Object.values(r).some((v) => /^toplam/i.test(String(v ?? '').trim()))
+    if (isTotalRow) continue
+    total       += num(r['Lead'] ?? r['Toplam Lead'] ?? '')
+    qualified   += num(r['Nitelikli Lead'] ?? '')
+    unqualified += num(r['Niteliksiz Lead'] ?? '')
+    firma       += num(r['Firma'] ?? '')
   }
   return { total, qualified, unqualified, firma }
 }
