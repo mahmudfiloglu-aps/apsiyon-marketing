@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FileType = 'lead_detail' | 'lead_summary' | 'google' | 'meta'
+type FileType = 'lead_detail' | 'lead_summary' | 'google' | 'meta' | 'google_cost'
 type PeriodType = 'monthly' | 'weekly'
 
 interface ProjectMeta {
@@ -32,8 +32,9 @@ interface Project extends ProjectMeta {
 const FILE_SLOTS: { type: FileType; label: string; accept: string; hint: string }[] = [
   { type: 'lead_detail',  label: 'Lead Detaylı',  accept: '.xlsx,.xls', hint: 'Aktiviteler.xlsx — CRM lead detayları' },
   { type: 'lead_summary', label: 'Lead Özeti',    accept: '.xlsx,.xls', hint: 'Lead_Performans.xlsx — nitelikli/niteliksiz özet' },
-  { type: 'google',       label: 'Google Ads',    accept: '.csv',        hint: 'Google Ads export CSV' },
-  { type: 'meta',         label: 'Meta Ads',      accept: '.csv',        hint: 'Meta Ads export CSV' },
+  { type: 'google',       label: 'Google Ads',      accept: '.csv',        hint: 'Google Ads export CSV' },
+  { type: 'meta',         label: 'Meta Ads',        accept: '.csv',        hint: 'Meta Ads export CSV' },
+  { type: 'google_cost',  label: 'Google Maliyet',  accept: '.csv',        hint: 'Google Ads Kampanya raporu CSV' },
 ]
 
 // ─── CRM helpers ──────────────────────────────────────────────────────────────
@@ -57,6 +58,13 @@ function normalizeChannel(k: string | undefined): string {
 function num(v: string | undefined): number {
   if (!v) return 0
   return parseFloat(String(v).replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0
+}
+
+// Turkish Google Ads number format: "1.742" = 1742 (period=thousands), "1519,82" = 1519.82 (comma=decimal)
+function numTR(v: string | undefined): number {
+  if (!v || v.trim() === '--' || v.trim() === ' --') return 0
+  const clean = v.replace(/\s/g, '').replace('%', '').replace(/\./g, '').replace(',', '.')
+  return parseFloat(clean) || 0
 }
 
 function fmt(n: number, dec = 0) { return n.toLocaleString('tr-TR', { maximumFractionDigits: dec }) }
@@ -85,11 +93,30 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
   }
   return new Promise((resolve, reject) => {
     import('papaparse').then(({ default: Papa }) => {
-      Papa.parse(file, {
-        header: true, skipEmptyLines: true,
-        complete: (r) => resolve(r.data as Record<string, string>[]),
-        error: reject,
-      })
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target?.result as string
+        const firstLine = text.split('\n')[0].trim()
+        let csvText = text
+        // Google Ads "Kampanya raporu" exports have 2 metadata rows before the real headers
+        if (firstLine === 'Kampanya raporu') {
+          const lines = text.split('\n')
+          const headerIdx = lines.findIndex((l, i) => i >= 2 && l.includes('Kampanya durumu'))
+          csvText = lines.slice(headerIdx >= 0 ? headerIdx : 2).join('\n')
+        }
+        Papa.parse(csvText, {
+          header: true, skipEmptyLines: true,
+          complete: (r) => {
+            const rows = (r.data as Record<string, string>[])
+              .filter((row) => !String(row['Kampanya'] ?? '').startsWith('Toplam:'))
+              .filter((row) => !String(row['Kampanya durumu'] ?? '').startsWith('Toplam:'))
+            resolve(rows)
+          },
+          error: reject,
+        })
+      }
+      reader.onerror = reject
+      reader.readAsText(file, 'utf-8')
     })
   })
 }
@@ -180,6 +207,41 @@ function buildMetaMetrics(rows: Record<string, string>[]): AdsMetrics[] {
     cpc: r.clicks > 0 ? r.spend / r.clicks : 0,
     cpa: r.conversions > 0 ? r.spend / r.conversions : 0,
   })).sort((a, b) => b.spend - a.spend)
+}
+
+interface CostRow {
+  campaign: string
+  status: string
+  impressions: number
+  clicks: number
+  ctr: number
+  spend: number
+  cpc: number
+  conversions: number
+  cpa: number
+}
+
+function buildGoogleCostMetrics(rows: Record<string, string>[]): CostRow[] {
+  return rows
+    .filter((r) => r['Kampanya'] && r['Kampanya'].trim() !== '' && !r['Kampanya'].startsWith('Toplam'))
+    .map((r) => {
+      const spend = numTR(r['Maliyet'])
+      const clicks = numTR(r['Tıklamalar'])
+      const impressions = numTR(r['Göstr.'])
+      const conversions = numTR(r['Dönüşümler'])
+      return {
+        campaign: r['Kampanya'].trim(),
+        status: r['Kampanya durumu'] ?? '',
+        impressions,
+        clicks,
+        ctr: numTR(r['TO']),
+        spend,
+        cpc: clicks > 0 ? spend / clicks : numTR(r['Ort. TBM']),
+        conversions,
+        cpa: conversions > 0 ? spend / conversions : numTR(r['Maliyet / dönüşüm']),
+      }
+    })
+    .sort((a, b) => b.spend - a.spend)
 }
 
 // ─── Excel export ──────────────────────────────────────────────────────────────
@@ -528,6 +590,125 @@ function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }
   )
 }
 
+// ─── Cost Tab ─────────────────────────────────────────────────────────────────
+
+function CostTab({ project }: { project: Project }) {
+  const curr = project.files.find((f) => f.file_type === 'google_cost' && !f.is_previous)
+  const prev = project.files.find((f) => f.file_type === 'google_cost' && f.is_previous)
+
+  if (!curr) return <EmptySlot label="Google Maliyet CSV dosyası yükleyin (Kampanya raporu)" />
+
+  const rows = buildGoogleCostMetrics(curr.data)
+  const prevRows = prev ? buildGoogleCostMetrics(prev.data) : null
+
+  const totSpend = rows.reduce((s, r) => s + r.spend, 0)
+  const totImpr = rows.reduce((s, r) => s + r.impressions, 0)
+  const totClicks = rows.reduce((s, r) => s + r.clicks, 0)
+  const totConv = rows.reduce((s, r) => s + r.conversions, 0)
+  const avgCTR = totImpr > 0 ? (totClicks / totImpr) * 100 : 0
+
+  return (
+    <div className="space-y-3">
+      {/* Summary strip */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <TH>Toplam Harcama</TH>
+              <TH right>Gösterim</TH>
+              <TH right>Tıklama</TH>
+              <TH right>Ort. CTR</TH>
+              <TH right>Dönüşüm</TH>
+              {totConv > 0 && <TH right>Dönüşüm Başı</TH>}
+              {prevRows && <TH right>Önceki Harcama</TH>}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <TD bold>{cur(totSpend)}</TD>
+              <TD right>{fmt(totImpr)}</TD>
+              <TD right>{fmt(totClicks)}</TD>
+              <TD right>{pct(avgCTR)}</TD>
+              <TD right bold>{fmt(totConv, 2)}</TD>
+              {totConv > 0 && <TD right bold>{cur(totSpend / totConv)}</TD>}
+              {prevRows && (
+                <TD right bold>
+                  {cur(prevRows.reduce((s, r) => s + r.spend, 0))}
+                  <DeltaBadge curr={totSpend} prev={prevRows.reduce((s, r) => s + r.spend, 0)} />
+                </TD>
+              )}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Campaign table */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <TH>Kampanya</TH>
+                <TH>Durum</TH>
+                <TH right>Harcama</TH>
+                <TH right>Gösterim</TH>
+                <TH right>Tıklama</TH>
+                <TH right>CTR %</TH>
+                <TH right>Ort. TBM</TH>
+                <TH right>Dönüşüm</TH>
+                <TH right>Dönüşüm Başı</TH>
+                {prevRows && <TH right>Önceki Harcama</TH>}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const p = prevRows?.find((x) => x.campaign === r.campaign)
+                const isActive = r.status === 'Etkin'
+                return (
+                  <tr key={r.campaign} className="hover:bg-slate-50/50">
+                    <TD>
+                      <span className="truncate max-w-[220px] block font-medium" title={r.campaign}>{r.campaign}</span>
+                    </TD>
+                    <TD>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {r.status || '—'}
+                      </span>
+                    </TD>
+                    <TD right bold>{cur(r.spend)}</TD>
+                    <TD right>{fmt(r.impressions)}</TD>
+                    <TD right>{fmt(r.clicks)}</TD>
+                    <TD right>{pct(r.ctr)}</TD>
+                    <TD right>{cur(r.cpc)}</TD>
+                    <TD right>{fmt(r.conversions, 2)}</TD>
+                    <TD right>{r.cpa > 0 ? cur(r.cpa) : '—'}</TD>
+                    {prevRows && (
+                      <TD right>
+                        {p ? cur(p.spend) : '—'}
+                        {p ? <DeltaBadge curr={r.spend} prev={p.spend} /> : ''}
+                      </TD>
+                    )}
+                  </tr>
+                )
+              })}
+              <tr className="bg-slate-50 border-t-2 border-slate-200">
+                <TD bold colSpan={2}>TOPLAM</TD>
+                <TD right bold>{cur(totSpend)}</TD>
+                <TD right bold>{fmt(totImpr)}</TD>
+                <TD right bold>{fmt(totClicks)}</TD>
+                <TD right bold>{pct(avgCTR)}</TD>
+                <TD right bold>{totClicks > 0 ? cur(totSpend / totClicks) : '—'}</TD>
+                <TD right bold>{fmt(totConv, 2)}</TD>
+                <TD right bold>{totConv > 0 ? cur(totSpend / totConv) : '—'}</TD>
+                {prevRows && <TD right bold>{cur(prevRows.reduce((s, r) => s + r.spend, 0))}</TD>}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EmptySlot({ label }: { label: string }) {
   return (
     <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-10 text-center">
@@ -620,13 +801,14 @@ function FileSlot({ projectId, slot, file, prevFile, onUploaded, onDeleted }: {
 // ─── Project View ─────────────────────────────────────────────────────────────
 
 function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () => void }) {
-  const [activeTab, setActiveTab] = useState<'lead' | 'google' | 'meta' | 'files'>('files')
+  const [activeTab, setActiveTab] = useState<'lead' | 'google' | 'meta' | 'cost' | 'files'>('files')
   const [showExport, setShowExport] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
 
   const hasLead = project.files.some((f) => f.file_type === 'lead_detail' && !f.is_previous)
   const hasGoogle = project.files.some((f) => f.file_type === 'google' && !f.is_previous)
   const hasMeta = project.files.some((f) => f.file_type === 'meta' && !f.is_previous)
+  const hasCost = project.files.some((f) => f.file_type === 'google_cost' && !f.is_previous)
 
   // Close export dropdown on outside click
   useEffect(() => {
@@ -646,6 +828,7 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
             { key: 'lead', label: '📋 Lead Raporu', disabled: !hasLead },
             { key: 'google', label: '🔵 Google Ads', disabled: !hasGoogle },
             { key: 'meta', label: '🔷 Meta Ads', disabled: !hasMeta },
+            { key: 'cost', label: '💰 Maliyet Raporu', disabled: !hasCost },
           ].map((t) => (
             <button key={t.key} onClick={() => !t.disabled && setActiveTab(t.key as typeof activeTab)}
               disabled={t.disabled}
@@ -676,7 +859,7 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
 
       {/* Files panel */}
       {activeTab === 'files' && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {FILE_SLOTS.map((slot) => (
             <FileSlot
               key={slot.type}
@@ -694,6 +877,7 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
       {activeTab === 'lead' && <LeadReportTab project={project} />}
       {activeTab === 'google' && <AdsTab project={project} type="google" />}
       {activeTab === 'meta' && <AdsTab project={project} type="meta" />}
+      {activeTab === 'cost' && <CostTab project={project} />}
     </div>
   )
 }
