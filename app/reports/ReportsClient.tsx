@@ -166,12 +166,13 @@ function buildGoogleMetrics(rows: Record<string, string>[]): AdsMetrics[] {
 function buildMetaMetrics(rows: Record<string, string>[]): AdsMetrics[] {
   const map: Record<string, AdsMetrics> = {}
   for (const row of rows) {
-    const camp = row['Campaign name'] ?? row['Kampanya adı'] ?? row['Campaign'] ?? 'Bilinmiyor'
+    const camp =
+      row['Kampanya Adı'] ?? row['Campaign name'] ?? row['Campaign'] ?? 'Bilinmiyor'
     if (!map[camp]) map[camp] = { campaign: camp, impressions: 0, clicks: 0, ctr: 0, spend: 0, conversions: 0, cpc: 0, cpa: 0 }
-    map[camp].impressions += num(row['Impressions'] ?? row['Gösterim'])
-    map[camp].clicks += num(row['Link clicks'] ?? row['Clicks'] ?? row['Tıklama'])
-    map[camp].spend += num(row['Amount spent'] ?? row['Harcanan tutar'] ?? row['Spend'])
-    map[camp].conversions += num(row['Results'] ?? row['Sonuçlar'])
+    map[camp].impressions += num(row['Gösterim'] ?? row['Impressions'])
+    map[camp].clicks     += num(row['Bağlantı Tıklamaları'] ?? row['Link clicks'] ?? row['Clicks'])
+    map[camp].spend      += num(row['Harcanan Tutar (TRY)'] ?? row['Amount spent (TRY)'] ?? row['Amount spent'] ?? row['Spend'])
+    map[camp].conversions += num(row['Sonuçlar'] ?? row['Results'])
   }
   return Object.values(map).map((r) => ({
     ...r,
