@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FileType = 'lead_detail' | 'lead_summary' | 'google' | 'meta' | 'google_cost'
+type FileType = 'lead_detail' | 'lead_summary' | 'google' | 'meta'
 type PeriodType = 'monthly' | 'weekly'
 
 interface ProjectMeta {
@@ -32,9 +32,8 @@ interface Project extends ProjectMeta {
 const FILE_SLOTS: { type: FileType; label: string; accept: string; hint: string }[] = [
   { type: 'lead_detail',  label: 'Lead Detaylı',  accept: '.xlsx,.xls', hint: 'Aktiviteler.xlsx — CRM lead detayları' },
   { type: 'lead_summary', label: 'Lead Özeti',    accept: '.xlsx,.xls', hint: 'Lead_Performans.xlsx — nitelikli/niteliksiz özet' },
-  { type: 'google',       label: 'Google Ads',      accept: '.csv',        hint: 'Google Ads export CSV' },
-  { type: 'meta',         label: 'Meta Ads',        accept: '.csv',        hint: 'Meta Ads export CSV' },
-  { type: 'google_cost',  label: 'Google Maliyet',  accept: '.csv',        hint: 'Google Ads Kampanya raporu CSV' },
+  { type: 'google', label: 'Google Ads', accept: '.csv', hint: 'Google Ads Kampanya raporu CSV' },
+  { type: 'meta',   label: 'Meta Ads',  accept: '.csv', hint: 'Meta Ads export CSV' },
 ]
 
 // ─── CRM helpers ──────────────────────────────────────────────────────────────
@@ -173,14 +172,24 @@ interface AdsMetrics {
 }
 
 function buildGoogleMetrics(rows: Record<string, string>[]): AdsMetrics[] {
+  // Auto-detect format: Turkish Kampanya raporu uses 'Maliyet' + 'Göstr.' columns
+  const isTR = rows.length > 0 && ('Maliyet' in rows[0] || 'Göstr.' in rows[0])
   const map: Record<string, AdsMetrics> = {}
   for (const row of rows) {
-    const camp = row['Campaign'] ?? row['Kampanya'] ?? 'Bilinmiyor'
+    const camp = row['Kampanya'] ?? row['Campaign'] ?? 'Bilinmiyor'
+    if (camp.startsWith('Toplam')) continue
     if (!map[camp]) map[camp] = { campaign: camp, impressions: 0, clicks: 0, ctr: 0, spend: 0, conversions: 0, cpc: 0, cpa: 0 }
-    map[camp].impressions += num(row['Impressions'] ?? row['Gösterim'])
-    map[camp].clicks += num(row['Clicks'] ?? row['Tıklama'])
-    map[camp].spend += num(row['Cost'] ?? row['Maliyet'] ?? row['Spend'])
-    map[camp].conversions += num(row['Conversions'] ?? row['Dönüşüm'])
+    if (isTR) {
+      map[camp].impressions += numTR(row['Göstr.'])
+      map[camp].clicks      += numTR(row['Tıklamalar'])
+      map[camp].spend       += numTR(row['Maliyet'])
+      map[camp].conversions += numTR(row['Dönüşümler'])
+    } else {
+      map[camp].impressions += num(row['Impressions'] ?? row['Gösterim'])
+      map[camp].clicks      += num(row['Clicks'] ?? row['Tıklama'])
+      map[camp].spend       += num(row['Cost'] ?? row['Spend'])
+      map[camp].conversions += num(row['Conversions'] ?? row['Dönüşüm'])
+    }
   }
   return Object.values(map).map((r) => ({
     ...r,
@@ -645,10 +654,10 @@ function AdsTab({ project, type }: { project: Project; type: 'google' | 'meta' }
 // ─── Cost Tab ─────────────────────────────────────────────────────────────────
 
 function CostTab({ project }: { project: Project }) {
-  const curr = project.files.find((f) => f.file_type === 'google_cost' && !f.is_previous)
-  const prev = project.files.find((f) => f.file_type === 'google_cost' && f.is_previous)
+  const curr = project.files.find((f) => f.file_type === 'google' && !f.is_previous)
+  const prev = project.files.find((f) => f.file_type === 'google' && f.is_previous)
 
-  if (!curr) return <EmptySlot label="Google Maliyet CSV dosyası yükleyin (Kampanya raporu)" />
+  if (!curr) return <EmptySlot label="Google Ads CSV dosyasını yükleyin" />
 
   const rows = buildGoogleCostMetrics(curr.data)
   const prevRows = prev ? buildGoogleCostMetrics(prev.data) : null
@@ -860,7 +869,7 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
   const hasLead = project.files.some((f) => f.file_type === 'lead_detail' && !f.is_previous)
   const hasGoogle = project.files.some((f) => f.file_type === 'google' && !f.is_previous)
   const hasMeta = project.files.some((f) => f.file_type === 'meta' && !f.is_previous)
-  const hasCost = project.files.some((f) => f.file_type === 'google_cost' && !f.is_previous)
+  const hasCost = project.files.some((f) => f.file_type === 'google' && !f.is_previous)
 
   // Close export dropdown on outside click
   useEffect(() => {
@@ -911,7 +920,7 @@ function ProjectView({ project, onRefresh }: { project: Project; onRefresh: () =
 
       {/* Files panel */}
       {activeTab === 'files' && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {FILE_SLOTS.map((slot) => (
             <FileSlot
               key={slot.type}
