@@ -142,6 +142,18 @@ export default function Sidebar() {
             📈 Reklam Raporları
           </Link>
         )}
+        {can('blog_tools') && (
+          <Link
+            href="/blog-tools"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              pathname?.startsWith('/blog-tools')
+                ? 'border-l-2 border-blue-600 bg-blue-50 text-blue-700 pl-[10px]'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            📖 Blog Araçları
+          </Link>
+        )}
         {can('settings') && (
           <Link
             href="/settings"

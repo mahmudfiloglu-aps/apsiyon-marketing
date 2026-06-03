@@ -8,6 +8,7 @@ const MODULES = [
   { key: 'analytics', label: 'Analitik' },
   { key: 'keywords', label: 'Negatif Kelimeler' },
   { key: 'ad_reports', label: 'Reklam Raporları' },
+  { key: 'blog_tools', label: 'Blog Araçları' },
   { key: 'settings', label: 'Ayarlar' },
 ]
 
@@ -37,17 +38,33 @@ export default function AdminClient({ currentUserRole }: Props) {
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
+  const [sitemapUrl, setSitemapUrl] = useState('')
+  const [sitemapSaving, setSitemapSaving] = useState(false)
 
   const load = useCallback(async () => {
-    const [uRes, pRes] = await Promise.all([
+    const [uRes, pRes, sRes] = await Promise.all([
       fetch('/api/admin/users'),
       fetch('/api/admin/permissions'),
+      fetch('/api/blog-settings'),
     ])
     if (uRes.ok) setUsers((await uRes.json()).users ?? [])
     if (pRes.ok) setPermissions((await pRes.json()).permissions ?? {})
+    if (sRes.ok) setSitemapUrl((await sRes.json()).sitemapUrl ?? '')
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const saveSitemapUrl = async () => {
+    setSitemapSaving(true)
+    const res = await fetch('/api/blog-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sitemapUrl }),
+    })
+    if (res.ok) setMsg('Sitemap URL kaydedildi')
+    setSitemapSaving(false)
+    setTimeout(() => setMsg(''), 3000)
+  }
 
   const getEffectivePerm = (userId: string, module: string) => {
     const userPerms = permissions[userId]
@@ -100,6 +117,28 @@ export default function AdminClient({ currentUserRole }: Props) {
           {msg}
         </div>
       )}
+
+      {/* Sitemap URL setting */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 mb-5">
+        <h2 className="text-sm font-semibold text-slate-700 mb-1">Blog Sitemap URL</h2>
+        <p className="text-xs text-slate-400 mb-3">Blog Araçları modülünün veri kaynağı. Senkronizasyon bu URL&apos;den çalışır.</p>
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={sitemapUrl}
+            onChange={(e) => setSitemapUrl(e.target.value)}
+            placeholder="https://example.com/sitemap.xml"
+            className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            onClick={saveSitemapUrl}
+            disabled={sitemapSaving || !sitemapUrl.trim()}
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+          >
+            {sitemapSaving ? 'Kaydediliyor...' : 'Kaydet'}
+          </button>
+        </div>
+      </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">

@@ -595,3 +595,78 @@ export async function deleteReportFile(id: string, userId: string) {
     WHERE rf.id = ${id} AND rf.project_id = rp.id AND rp.user_id = ${userId}
   `
 }
+
+// ── Blog Tools ─────────────────────────────────────────
+
+export async function createBlogTables() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS blog_settings (
+      key VARCHAR(100) PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS blog_posts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      url TEXT NOT NULL UNIQUE,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      auto_keywords TEXT[] DEFAULT '{}',
+      manual_keywords TEXT[] DEFAULT '{}',
+      last_synced TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `
+}
+
+export async function getBlogSetting(key: string): Promise<string | null> {
+  const sql = getDb()
+  await createBlogTables()
+  const rows = await sql`SELECT value FROM blog_settings WHERE key = ${key}`
+  return rows[0]?.value ?? null
+}
+
+export async function setBlogSetting(key: string, value: string) {
+  const sql = getDb()
+  await createBlogTables()
+  await sql`
+    INSERT INTO blog_settings (key, value) VALUES (${key}, ${value})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `
+}
+
+export async function listBlogPosts() {
+  const sql = getDb()
+  await createBlogTables()
+  return sql`
+    SELECT id, url, slug, title, auto_keywords, manual_keywords, last_synced, created_at
+    FROM blog_posts ORDER BY created_at DESC
+  `
+}
+
+export async function upsertBlogPost(
+  url: string, slug: string, title: string, autoKeywords: string[]
+) {
+  const sql = getDb()
+  await sql`
+    INSERT INTO blog_posts (url, slug, title, auto_keywords, last_synced)
+    VALUES (${url}, ${slug}, ${title}, ${autoKeywords}, NOW())
+    ON CONFLICT (url) DO UPDATE SET
+      slug = EXCLUDED.slug,
+      title = EXCLUDED.title,
+      auto_keywords = EXCLUDED.auto_keywords,
+      last_synced = NOW()
+  `
+}
+
+export async function updateBlogPostKeywords(id: string, manualKeywords: string[]) {
+  const sql = getDb()
+  await sql`UPDATE blog_posts SET manual_keywords = ${manualKeywords} WHERE id = ${id}`
+}
+
+export async function deleteBlogPost(id: string) {
+  const sql = getDb()
+  await sql`DELETE FROM blog_posts WHERE id = ${id}`
+}
