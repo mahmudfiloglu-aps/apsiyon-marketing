@@ -112,6 +112,8 @@ function RecommendTab() {
   const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<Recommendation[] | null>(null)
+  const [aiUsed, setAiUsed] = useState(false)
+  const [notice, setNotice] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -121,6 +123,7 @@ function RecommendTab() {
     setError('')
     setResults(null)
     setMessage('')
+    setNotice('')
     try {
       const res = await fetch('/api/blog-recommend', {
         method: 'POST',
@@ -130,9 +133,11 @@ function RecommendTab() {
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Hata oluştu'); return }
       setResults(data.recommendations ?? [])
+      setAiUsed(data.aiUsed ?? false)
       setMessage(data.message ?? '')
+      setNotice(data.notice ?? '')
     } catch {
-      setError('Sunucu hatası, tekrar deneyin.')
+      setError('İstek zaman aşımına uğradı. Lütfen tekrar deneyin.')
     } finally {
       setLoading(false)
     }
@@ -173,6 +178,11 @@ function RecommendTab() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{error}</div>
       )}
+      {notice && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-500 flex items-center gap-1.5">
+          <span>ℹ️</span> {notice}
+        </div>
+      )}
       {message && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">{message}</div>
       )}
@@ -183,7 +193,11 @@ function RecommendTab() {
             <p className="text-sm font-semibold text-slate-700">
               {results.length > 0 ? `${results.length} Blog Önerisi` : 'Uygun blog bulunamadı'}
             </p>
-            {results.length > 0 && <span className="text-xs text-slate-400">AI eşleşme puanı / 100</span>}
+            {results.length > 0 && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${aiUsed ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-500'}`}>
+                {aiUsed ? '🤖 AI Puanı / 100' : '🔤 Anahtar Kelime Puanı / 100'}
+              </span>
+            )}
           </div>
           {results.length === 0 && (
             <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center">

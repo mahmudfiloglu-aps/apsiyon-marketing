@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { listBlogPosts } from '@/lib/db'
 import { GoogleGenAI } from '@google/genai'
 
-export const maxDuration = 30
+export const maxDuration = 60
 
 function getAiClient() {
   const project = process.env.GOOGLE_CLOUD_PROJECT
@@ -20,25 +20,77 @@ function getAiClient() {
   })
 }
 
-// Normalize text for keyword overlap: lowercase, strip punctuation
-function normalize(text: string): string[] {
-  return text.toLowerCase().replace(/[^a-zçğıöşüa-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length >= 3)
+// ─── Local keyword scoring (instant fallback) ─────────────────────────────────
+
+function tokenize(text: string): string[] {
+  return text.toLowerCase()
+    .replace(/[^a-zçğıöşüa-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3)
 }
 
-// Pre-score blogs by keyword overlap with user query
-function preScore(queryWords: string[], autoKw: string[], manualKw: string[]): number {
+function localScore(queryTokens: string[], autoKw: string[], manualKw: string[]): number {
+  if (!queryTokens.length) return 0
   const allKw = [...autoKw, ...manualKw].map((k) => k.toLowerCase())
-  return queryWords.reduce((score, w) => score + (allKw.some((k) => k.includes(w) || w.includes(k)) ? 1 : 0), 0)
+  let hits = 0
+  for (const qt of queryTokens) {
+    if (allKw.some((k) => k.includes(qt) || qt.includes(k))) hits++
+  }
+  // manual keywords carry extra weight (already counted once, add again)
+  let manualHits = 0
+  for (const qt of queryTokens) {
+    if (manualKw.map((k) => k.toLowerCase()).some((k) => k.includes(qt) || qt.includes(k))) manualHits++
+  }
+  const raw = (hits + manualHits) / queryTokens.length
+  return Math.min(100, Math.round(raw * 130))
 }
 
 interface BlogPost {
-  id: string
-  url: string
-  slug: string
-  title: string
-  auto_keywords: string[]
-  manual_keywords: string[]
+  id: string; url: string; slug: string; title: string
+  auto_keywords: string[]; manual_keywords: string[]
 }
+
+interface AiRec { id: string; score: number; reason: string }
+
+// ─── AI scoring with strict timeout ──────────────────────────────────────────
+
+async function aiScore(title: string, description: string, candidates: BlogPost[]): Promise<AiRec[]> {
+  const blogList = candidates.map((p, i) => {
+    const kw = [...(p.auto_keywords ?? []), ...(p.manual_keywords ?? [])].join(', ')
+    return `${i + 1}. ID:${p.id} | ${p.title} | ${kw}`
+  }).join('\n')
+
+  const prompt = `Sen bir içerik stratejistisisin. YouTube videosu için uygun blog öner.
+
+Video: ${title}
+Açıklama: ${description ?? '(yok)'}
+
+Bloglar:
+${blogList}
+
+Her blog için 0-100 puan ver (65+: doğrudan ilgili, 35-64: destekleyici, 0-34: önermez).
+Minimum 3, maksimum 5 öneri. 35 altını ekleme (3'e ulaşamasan bile).
+
+Sadece JSON array döndür:
+[{"id":"UUID","score":80,"reason":"Kısa Türkçe açıklama"}]`
+
+  const TIMEOUT_MS = 25_000
+  const aiPromise = getAiClient().models.generateContent({
+    model: process.env.GEMINI_CLASSIFICATION_MODEL || 'gemini-2.5-flash',
+    contents: prompt,
+  })
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('ai_timeout')), TIMEOUT_MS)
+  )
+
+  const response = await Promise.race([aiPromise, timeoutPromise])
+  const text = (response as Awaited<typeof aiPromise>).text ?? ''
+  const match = text.match(/\[[\s\S]*\]/)
+  if (!match) throw new Error('no_json')
+  return JSON.parse(match[0]) as AiRec[]
+}
+
+// ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -47,73 +99,62 @@ export async function POST(req: NextRequest) {
   const { title, description } = await req.json()
   if (!title?.trim()) return NextResponse.json({ error: 'Başlık gerekli' }, { status: 400 })
 
-  const posts = (await listBlogPosts()) as BlogPost[]
-  if (!posts.length) return NextResponse.json({ recommendations: [], message: 'Henüz blog verisi yok. Admin panelinden senkronize edin.' })
-
-  // Pre-filter: score by keyword overlap, take top 25 for AI
-  const queryWords = normalize(`${title} ${description ?? ''}`)
-  const scored = posts
-    .map((p) => ({ ...p, preScore: preScore(queryWords, p.auto_keywords ?? [], p.manual_keywords ?? []) }))
-    .sort((a, b) => b.preScore - a.preScore)
-    .slice(0, 25)
-
-  // Build blog list for AI prompt
-  const blogList = scored.map((p, i) => {
-    const allKw = [...(p.auto_keywords ?? []), ...(p.manual_keywords ?? [])].join(', ')
-    return `${i + 1}. ID:${p.id} | Başlık: ${p.title} | URL: ${p.url} | Kelimeler: ${allKw}`
-  }).join('\n')
-
-  const prompt = `Sen bir içerik stratejisti ve SEO uzmanısın. Bir YouTube videosu için en uygun blog yazılarını öneriyorsun.
-
-## Video Bilgileri
-Başlık: ${title}
-Açıklama: ${description ?? '(belirtilmedi)'}
-
-## Değerlendirme Kriterleri
-- Konusal uyum: Video içeriği ile blog konusu örtüşüyor mu?
-- Güncellik: Blog konusu hâlâ geçerli ve güncel mi?
-- Değer: Video izleyicisi bu blogu okursa faydalanır mı?
-
-## Mevcut Blog Yazıları
-${blogList}
-
-## Görevin
-Her bloğu 0-100 arası puan ver:
-- 65-100: Doğrudan ilgili, kesinlikle paylaşılmalı
-- 35-64: Destekleyici içerik, paylaşılabilir
-- 0-34: Yetersiz ilgi, önerme
-
-Kurallar:
-1. Minimum 3, maksimum 5 öneri yap
-2. Eğer 65+ puanlı 3 blog yoksa, 35+ puanlılarla tamamla
-3. 35 altı puanlı blogu hiç ekleme (3'e ulaşamasan da)
-4. Aynı konudan birden fazla blog önerme
-
-Cevabı SADECE geçerli JSON array olarak döndür:
-[{"id":"UUID","score":85,"reason":"Kısa Türkçe açıklama (max 15 kelime)"},...]`
-
-  let recommendations: { id: string; score: number; reason: string }[] = []
-
+  // DB query with its own error handling
+  let posts: BlogPost[]
   try {
-    const model = process.env.GEMINI_CLASSIFICATION_MODEL || 'gemini-2.5-flash'
-    const response = await getAiClient().models.generateContent({ model, contents: prompt })
-    const text = response.text ?? ''
-    const match = text.match(/\[[\s\S]*\]/)
-    if (match) recommendations = JSON.parse(match[0])
+    posts = (await listBlogPosts()) as BlogPost[]
   } catch (e) {
-    console.error('[blog-recommend] AI error:', e)
-    // Fallback: return top pre-scored posts
-    recommendations = scored.slice(0, 5).map((p, i) => ({
-      id: p.id, score: Math.max(10, 60 - i * 10), reason: 'Anahtar kelime eşleşmesi',
-    }))
+    console.error('[blog-recommend] DB error:', e)
+    return NextResponse.json({ error: 'Veritabanı hatası' }, { status: 500 })
   }
 
-  // Enrich with full blog data
-  const postMap = Object.fromEntries(posts.map((p) => [p.id, p]))
-  const enriched = recommendations
-    .filter((r) => postMap[r.id])
-    .map((r) => ({ ...r, ...postMap[r.id] }))
-    .sort((a, b) => b.score - a.score)
+  if (!posts.length) {
+    return NextResponse.json({
+      recommendations: [],
+      message: 'Henüz blog verisi yok. Admin panelinden sitemap URL\'sini ayarlayıp "Senkronize Et" butonuna basın.',
+    })
+  }
 
-  return NextResponse.json({ recommendations: enriched })
+  // Always compute local scores first (instant)
+  const queryTokens = tokenize(`${title} ${description ?? ''}`)
+  const withLocal = posts
+    .map((p) => ({ ...p, localScore: localScore(queryTokens, p.auto_keywords ?? [], p.manual_keywords ?? []) }))
+    .filter((p) => p.localScore > 0)
+    .sort((a, b) => b.localScore - a.localScore)
+    .slice(0, 15)
+
+  // Fallback result set (used if AI fails or is skipped)
+  const postMap = Object.fromEntries(posts.map((p) => [p.id, p]))
+  const fallbackResults = withLocal
+    .filter((p) => p.localScore >= 20)
+    .slice(0, 5)
+    .map((p) => ({ ...postMap[p.id], score: p.localScore, reason: 'Anahtar kelime eşleşmesi', aiUsed: false }))
+
+  // Try AI scoring — gracefully skip on timeout/error
+  let finalResults = fallbackResults
+  let aiUsed = false
+
+  if (withLocal.length > 0) {
+    try {
+      const aiRecs = await aiScore(title, description, withLocal)
+      const enriched = aiRecs
+        .filter((r) => postMap[r.id] && r.score >= 35)
+        .map((r) => ({ ...postMap[r.id], score: r.score, reason: r.reason, aiUsed: true }))
+        .sort((a, b) => b.score - a.score)
+      if (enriched.length >= 1) {
+        finalResults = enriched.slice(0, 5)
+        aiUsed = true
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn('[blog-recommend] AI fallback:', msg)
+      // use fallbackResults already set above
+    }
+  }
+
+  return NextResponse.json({
+    recommendations: finalResults,
+    aiUsed,
+    ...(aiUsed ? {} : { notice: 'AI değerlendirme yapılamadı; anahtar kelime eşleşmesi kullanıldı.' }),
+  })
 }
