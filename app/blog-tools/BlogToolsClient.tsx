@@ -116,6 +116,7 @@ function RecommendTab() {
   const [notice, setNotice] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [meta, setMeta] = useState<{ totalBlogCount?: number; matchedCount?: number } | null>(null)
 
   const submit = async () => {
     if (!title.trim()) return
@@ -124,6 +125,7 @@ function RecommendTab() {
     setResults(null)
     setMessage('')
     setNotice('')
+    setMeta(null)
     try {
       const res = await fetch('/api/blog-recommend', {
         method: 'POST',
@@ -136,6 +138,7 @@ function RecommendTab() {
       setAiUsed(data.aiUsed ?? false)
       setMessage(data.message ?? '')
       setNotice(data.notice ?? '')
+      setMeta({ totalBlogCount: data.totalBlogCount, matchedCount: data.matchedCount })
     } catch {
       setError('İstek zaman aşımına uğradı. Lütfen tekrar deneyin.')
     } finally {
@@ -151,18 +154,21 @@ function RecommendTab() {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            onKeyDown={(e) => e.key === 'Enter' && !loading && submit()}
             placeholder="Örn: Airbnb'de Ev Yönetimi İpuçları"
             className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">Video Açıklaması <span className="text-slate-400 font-normal">(isteğe bağlı, artırır)</span></label>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">
+            Video Açıklaması
+            <span className="text-slate-400 font-normal ml-1">(isteğe bağlı — eşleşme kalitesini artırır)</span>
+          </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            rows={4}
-            placeholder="Videodaki konuları, hedef kitleyi kısaca açıklayın..."
+            rows={3}
+            placeholder="Videodaki konuları, anahtar kavramları kısaca açıklayın..."
             className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -171,7 +177,12 @@ function RecommendTab() {
           disabled={loading || !title.trim()}
           className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
         >
-          {loading ? '🤖 Analiz ediliyor...' : '✨ Blog Önerisi Al'}
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Analiz ediliyor...
+            </span>
+          ) : '✨ Blog Önerisi Al'}
         </button>
       </div>
 
@@ -189,20 +200,35 @@ function RecommendTab() {
 
       {results !== null && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-slate-700">
-              {results.length > 0 ? `${results.length} Blog Önerisi` : 'Uygun blog bulunamadı'}
+              {results.length > 0 ? `${results.length} Blog Önerisi` : 'Eşleşen blog bulunamadı'}
             </p>
             {results.length > 0 && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${aiUsed ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-500'}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${aiUsed ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                 {aiUsed ? '🤖 AI Puanı / 100' : '🔤 Anahtar Kelime Puanı / 100'}
               </span>
             )}
+            {meta?.totalBlogCount != null && (
+              <span className="text-[10px] text-slate-400 ml-auto">
+                {meta.totalBlogCount} blog içinde tarandı
+                {meta.matchedCount != null && meta.matchedCount > 0 && `, ${meta.matchedCount} aday bulundu`}
+              </span>
+            )}
           </div>
+
           {results.length === 0 && (
-            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center">
-              <p className="text-sm text-slate-500">Bu video için yeterince ilgili blog bulunamadı.</p>
-              <p className="text-xs text-slate-400 mt-1">Blog anahtar kelimelerini genişleterek tekrar deneyin.</p>
+            <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-3">
+              <p className="text-sm font-medium text-slate-700">Bu video için ilgili blog yazısı bulunamadı.</p>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Şu an <strong>{meta?.totalBlogCount ?? 0} blog</strong> taranıyor.
+                Eşleşme bulunamadığında şunları deneyebilirsiniz:
+              </p>
+              <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside leading-relaxed">
+                <li>Video başlığındaki teknik kelimeleri genişletin (örn. &quot;apartman&quot; → &quot;apartman yönetimi site&quot;)</li>
+                <li>Blog Yönetimi sekmesinde ilgili bloglara <strong>manuel anahtar kelime</strong> ekleyin</li>
+                <li>Blogu son senkronize ettiğinizden bu yana yeni içerik eklendiyse <strong>yeniden senkronize</strong> edin</li>
+              </ul>
             </div>
           )}
           {results.map((r) => <RecCard key={r.id} rec={r} />)}

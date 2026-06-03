@@ -20,29 +20,69 @@ function getAiClient() {
   })
 }
 
-// ─── Local keyword scoring (instant fallback) ─────────────────────────────────
+// ─── Turkish-aware text normalization ────────────────────────────────────────
+
+// Converts Turkish chars to ASCII so slug keywords (ö→o) match user input (ö)
+function normTR(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c')
+    .replace(/İ/g, 'i').replace(/Ğ/g, 'g').replace(/Ü/g, 'u')
+    .replace(/Ş/g, 's').replace(/Ö/g, 'o').replace(/Ç/g, 'c')
+}
 
 function tokenize(text: string): string[] {
-  return text.toLowerCase()
-    .replace(/[^a-zçğıöşüa-z0-9\s]/g, ' ')
+  return normTR(text)
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length >= 3)
 }
 
-function localScore(queryTokens: string[], autoKw: string[], manualKw: string[]): number {
+// Two tokens match if one is a prefix of the other (min 4 chars) or exact.
+// Handles Turkish stemming heuristically: "yönetim"/"yönetimleri" both → "yonetim"
+function tokensMatch(a: string, b: string): boolean {
+  if (a === b) return true
+  const minLen = Math.min(a.length, b.length)
+  if (minLen < 4) return false
+  // prefix match: "yonetim" matches "yoneticilerin" and vice-versa
+  return a.startsWith(b.slice(0, minLen)) || b.startsWith(a.slice(0, minLen))
+}
+
+function localScore(
+  queryTokens: string[],
+  autoKw: string[],
+  manualKw: string[],
+  slug: string,
+  title: string,
+): number {
   if (!queryTokens.length) return 0
-  const allKw = [...autoKw, ...manualKw].map((k) => k.toLowerCase())
-  let hits = 0
+
+  const autoNorm   = autoKw.map(normTR)
+  const manualNorm = manualKw.map(normTR)
+  const titleTokens = tokenize(title)
+  const slugTokens  = tokenize(slug)
+  // all keywords to match against
+  const allKw = [...autoNorm, ...manualNorm, ...titleTokens, ...slugTokens]
+
+  let score = 0
   for (const qt of queryTokens) {
-    if (allKw.some((k) => k.includes(qt) || qt.includes(k))) hits++
+    const matchedAuto   = autoNorm.some((k)   => tokensMatch(qt, k))
+    const matchedManual = manualNorm.some((k)  => tokensMatch(qt, k))
+    const matchedTitle  = titleTokens.some((k) => tokensMatch(qt, k))
+    const matchedSlug   = slugTokens.some((k)  => tokensMatch(qt, k))
+
+    if (matchedManual) score += 4   // manual keywords: highest signal
+    else if (matchedAuto) score += 3
+    else if (matchedTitle) score += 2
+    else if (matchedSlug) score += 1
+    // also reward if a keyword contains the query token
+    else if (allKw.some((k) => k.includes(qt) && qt.length >= 4)) score += 1
   }
-  // manual keywords carry extra weight (already counted once, add again)
-  let manualHits = 0
-  for (const qt of queryTokens) {
-    if (manualKw.map((k) => k.toLowerCase()).some((k) => k.includes(qt) || qt.includes(k))) manualHits++
-  }
-  const raw = (hits + manualHits) / queryTokens.length
-  return Math.min(100, Math.round(raw * 130))
+
+  // Normalize: max possible score = 4 * queryTokens.length
+  const normalized = (score / (4 * queryTokens.length)) * 100
+  return Math.min(100, Math.round(normalized))
 }
 
 interface BlogPost {
@@ -99,7 +139,6 @@ export async function POST(req: NextRequest) {
   const { title, description } = await req.json()
   if (!title?.trim()) return NextResponse.json({ error: 'Başlık gerekli' }, { status: 400 })
 
-  // DB query with its own error handling
   let posts: BlogPost[]
   try {
     posts = (await listBlogPosts()) as BlogPost[]
@@ -111,32 +150,39 @@ export async function POST(req: NextRequest) {
   if (!posts.length) {
     return NextResponse.json({
       recommendations: [],
-      message: 'Henüz blog verisi yok. Admin panelinden sitemap URL\'sini ayarlayıp "Senkronize Et" butonuna basın.',
+      totalBlogCount: 0,
+      message: 'Henüz blog verisi yok. Admin panelinden sitemap URL\'sini ayarlayıp senkronize edin.',
     })
   }
 
-  // Always compute local scores first (instant)
+  // Score every post with the improved local scorer
   const queryTokens = tokenize(`${title} ${description ?? ''}`)
-  const withLocal = posts
-    .map((p) => ({ ...p, localScore: localScore(queryTokens, p.auto_keywords ?? [], p.manual_keywords ?? []) }))
-    .filter((p) => p.localScore > 0)
-    .sort((a, b) => b.localScore - a.localScore)
-    .slice(0, 15)
+  const scored = posts
+    .map((p) => ({
+      ...p,
+      score: localScore(queryTokens, p.auto_keywords ?? [], p.manual_keywords ?? [], p.slug ?? '', p.title ?? ''),
+    }))
+    .sort((a, b) => b.score - a.score)
 
-  // Fallback result set (used if AI fails or is skipped)
+  // Candidates: top 15 with score > 0 (sent to AI)
+  const candidates = scored.filter((p) => p.score > 0).slice(0, 15)
+
+  // Fallback result set — top 5 with score >= 5, or top 3 if nothing above 5
   const postMap = Object.fromEntries(posts.map((p) => [p.id, p]))
-  const fallbackResults = withLocal
-    .filter((p) => p.localScore >= 20)
-    .slice(0, 5)
-    .map((p) => ({ ...postMap[p.id], score: p.localScore, reason: 'Anahtar kelime eşleşmesi', aiUsed: false }))
+  const fallbackPool = candidates.length >= 3
+    ? candidates.filter((p) => p.score >= 5).slice(0, 5)
+    : scored.slice(0, 3)          // last resort: just top 3 whatever score
+  const fallbackResults = fallbackPool.map((p) => ({
+    ...postMap[p.id], score: p.score, reason: 'Anahtar kelime eşleşmesi', aiUsed: false,
+  }))
 
-  // Try AI scoring — gracefully skip on timeout/error
+  // Try AI scoring
   let finalResults = fallbackResults
   let aiUsed = false
 
-  if (withLocal.length > 0) {
+  if (candidates.length > 0) {
     try {
-      const aiRecs = await aiScore(title, description, withLocal)
+      const aiRecs = await aiScore(title, description, candidates)
       const enriched = aiRecs
         .filter((r) => postMap[r.id] && r.score >= 35)
         .map((r) => ({ ...postMap[r.id], score: r.score, reason: r.reason, aiUsed: true }))
@@ -146,15 +192,15 @@ export async function POST(req: NextRequest) {
         aiUsed = true
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      console.warn('[blog-recommend] AI fallback:', msg)
-      // use fallbackResults already set above
+      console.warn('[blog-recommend] AI fallback:', e instanceof Error ? e.message : e)
     }
   }
 
   return NextResponse.json({
     recommendations: finalResults,
     aiUsed,
-    ...(aiUsed ? {} : { notice: 'AI değerlendirme yapılamadı; anahtar kelime eşleşmesi kullanıldı.' }),
+    totalBlogCount: posts.length,
+    matchedCount: candidates.length,
+    ...(aiUsed ? {} : { notice: 'AI değerlendirme tamamlanamadı; anahtar kelime eşleşmesi kullanıldı.' }),
   })
 }
