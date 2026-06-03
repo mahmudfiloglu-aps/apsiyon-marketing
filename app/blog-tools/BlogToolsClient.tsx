@@ -15,9 +15,26 @@ interface BlogPost {
   created_at: string
 }
 
+interface MatchedTerm { term: string; type: 'manual' | 'auto' | 'title' }
+
 interface Recommendation extends BlogPost {
   score: number
   reason: string
+  matchedTerms?: MatchedTerm[]
+  aiUsedForThis?: boolean
+}
+
+const CACHE_KEY = 'blog_recommend_cache'
+const CACHE_TTL = 24 * 60 * 60 * 1000
+
+interface CacheEntry {
+  query: { title: string; description: string }
+  results: Recommendation[]
+  aiUsed: boolean
+  notice: string
+  message: string
+  meta: { totalBlogCount?: number; matchedCount?: number }
+  timestamp: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,18 +87,19 @@ function KeywordEditor({
 
 function RecCard({ rec }: { rec: Recommendation }) {
   const badge = scoreBadge(rec.score)
-  const allKw = [...(rec.auto_keywords ?? []), ...(rec.manual_keywords ?? [])]
+  const manualMatches = (rec.matchedTerms ?? []).filter(m => m.type === 'manual')
+  const autoMatches   = (rec.matchedTerms ?? []).filter(m => m.type === 'auto')
+  const titleMatches  = (rec.matchedTerms ?? []).filter(m => m.type === 'title')
+  const hasMatches    = (rec.matchedTerms ?? []).length > 0
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-2">
+    <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-2.5">
+      {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-800 leading-snug">{rec.title}</p>
-          <a
-            href={rec.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[11px] text-blue-600 hover:underline truncate block mt-0.5"
-          >
+          <a href={rec.url} target="_blank" rel="noopener noreferrer"
+            className="text-[11px] text-blue-600 hover:underline truncate block mt-0.5">
             {rec.url}
           </a>
         </div>
@@ -90,15 +108,40 @@ function RecCard({ rec }: { rec: Recommendation }) {
           <span className="text-[9px] font-semibold uppercase tracking-wide leading-none">{badge.label}</span>
         </div>
       </div>
+
+      {/* Reason */}
       {rec.reason && (
-        <p className="text-xs text-slate-500 italic">{rec.reason}</p>
+        <p className="text-xs text-slate-500 leading-relaxed">{rec.reason}</p>
       )}
-      {allKw.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {allKw.slice(0, 8).map((k) => (
-            <span key={k} className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{k}</span>
-          ))}
-          {allKw.length > 8 && <span className="text-[9px] text-slate-400">+{allKw.length - 8}</span>}
+
+      {/* Matched terms breakdown */}
+      {hasMatches && (
+        <div className="border-t border-slate-100 pt-2 space-y-1.5">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Eşleşme nedenleri</p>
+          <div className="flex flex-wrap gap-1 items-center">
+            {manualMatches.map(m => (
+              <span key={m.term} className="inline-flex items-center gap-1 text-[10px] bg-blue-50 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded-full font-medium">
+                <span className="text-blue-400">★</span>{m.term}
+              </span>
+            ))}
+            {autoMatches.map(m => (
+              <span key={m.term} className="text-[10px] bg-green-50 text-green-700 border border-green-100 px-1.5 py-0.5 rounded-full">
+                {m.term}
+              </span>
+            ))}
+            {titleMatches.map(m => (
+              <span key={m.term} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
+                {m.term}
+              </span>
+            ))}
+          </div>
+          <p className="text-[9px] text-slate-300 leading-none">
+            {[
+              manualMatches.length > 0 && '★ manuel etiket',
+              autoMatches.length  > 0 && '● oto. anahtar kelime',
+              titleMatches.length > 0 && '○ başlık',
+            ].filter(Boolean).join('  ·  ')}
+          </p>
         </div>
       )}
     </div>
@@ -117,6 +160,29 @@ function RecommendTab() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [meta, setMeta] = useState<{ totalBlogCount?: number; matchedCount?: number } | null>(null)
+  const [cachedAt, setCachedAt] = useState<Date | null>(null)
+
+  // Restore from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY)
+      if (!raw) return
+      const cache: CacheEntry = JSON.parse(raw)
+      if (Date.now() - cache.timestamp > CACHE_TTL) { localStorage.removeItem(CACHE_KEY); return }
+      setTitle(cache.query.title)
+      setDescription(cache.query.description)
+      setResults(cache.results)
+      setAiUsed(cache.aiUsed)
+      setNotice(cache.notice)
+      setMessage(cache.message)
+      setMeta(cache.meta)
+      setCachedAt(new Date(cache.timestamp))
+    } catch {}
+  }, [])
+
+  const saveCache = (entry: Omit<CacheEntry, 'timestamp'>) => {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...entry, timestamp: Date.now() })) } catch {}
+  }
 
   const submit = async () => {
     if (!title.trim()) return
@@ -126,6 +192,7 @@ function RecommendTab() {
     setMessage('')
     setNotice('')
     setMeta(null)
+    setCachedAt(null)
     try {
       const res = await fetch('/api/blog-recommend', {
         method: 'POST',
@@ -134,11 +201,14 @@ function RecommendTab() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Hata oluştu'); return }
-      setResults(data.recommendations ?? [])
-      setAiUsed(data.aiUsed ?? false)
-      setMessage(data.message ?? '')
-      setNotice(data.notice ?? '')
-      setMeta({ totalBlogCount: data.totalBlogCount, matchedCount: data.matchedCount })
+      const recs       = data.recommendations ?? []
+      const ai         = data.aiUsed ?? false
+      const ntc        = data.notice ?? ''
+      const msg        = data.message ?? ''
+      const m          = { totalBlogCount: data.totalBlogCount, matchedCount: data.matchedCount }
+      setResults(recs); setAiUsed(ai); setMessage(msg); setNotice(ntc); setMeta(m)
+      saveCache({ query: { title: title.trim(), description: description.trim() }, results: recs, aiUsed: ai, notice: ntc, message: msg, meta: m })
+      setCachedAt(new Date())
     } catch {
       setError('İstek zaman aşımına uğradı. Lütfen tekrar deneyin.')
     } finally {
@@ -209,12 +279,21 @@ function RecommendTab() {
                 {aiUsed ? '🤖 AI Puanı / 100' : '🔤 Anahtar Kelime Puanı / 100'}
               </span>
             )}
-            {meta?.totalBlogCount != null && (
-              <span className="text-[10px] text-slate-400 ml-auto">
-                {meta.totalBlogCount} blog içinde tarandı
-                {meta.matchedCount != null && meta.matchedCount > 0 && `, ${meta.matchedCount} aday bulundu`}
-              </span>
-            )}
+            <span className="text-[10px] text-slate-400 ml-auto flex items-center gap-2">
+              {meta?.totalBlogCount != null && (
+                <span>
+                  {meta.totalBlogCount} blog tarandı
+                  {meta.matchedCount != null && meta.matchedCount > 0 && `, ${meta.matchedCount} aday`}
+                </span>
+              )}
+              {cachedAt && (
+                <span className="flex items-center gap-0.5 bg-slate-100 px-1.5 py-0.5 rounded-full" title="Önbellekten geri yüklendi">
+                  💾 {cachedAt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  <button onClick={() => { setResults(null); setCachedAt(null); localStorage.removeItem(CACHE_KEY) }}
+                    className="ml-1 text-slate-400 hover:text-red-400 font-bold leading-none" title="Temizle">×</button>
+                </span>
+              )}
+            </span>
           </div>
 
           {results.length === 0 && (
