@@ -102,11 +102,13 @@ interface AiRec { id: string; score: number; reason: string }
 
 // ─── AI scoring ───────────────────────────────────────────────────────────────
 
-async function aiScore(title: string, description: string, candidates: BlogPost[]): Promise<AiRec[]> {
+async function aiScore(title: string, description: string, candidates: BlogPost[], needTitles: boolean): Promise<{ recs: AiRec[]; suggestedTitles: string[] }> {
   const blogList = candidates.map((p, i) => {
     const kw = [...(p.auto_keywords ?? []), ...(p.manual_keywords ?? [])].join(', ')
     return `${i + 1}. ID:${p.id} | ${p.title} | ${kw}`
   }).join('\n')
+
+  const titleBlock = needTitles ? `\nAyrıca bu video konusuyla ilgili 5 özgün Türkçe içerik/blog başlığı öner. "suggestedTitles" alanına dizi olarak ekle.` : ''
 
   const prompt = `Sen bir içerik stratejistisisin. YouTube videosu için uygun blog öner.
 
@@ -117,9 +119,10 @@ Bloglar:
 ${blogList}
 
 Her blog için 0-100 puan ver (65+: doğrudan ilgili, 35-64: destekleyici, 0-34: önermez).
-Minimum 3, maksimum 5 öneri. 35 altını ekleme (3'e ulaşamasan bile).
-Sadece JSON array döndür:
-[{"id":"UUID","score":80,"reason":"Kısa Türkçe açıklama"}]`
+Minimum 3, maksimum 5 öneri. 35 altını ekleme (3'e ulaşamasan bile).${titleBlock}
+
+Sadece JSON döndür:
+{"recs":[{"id":"UUID","score":80,"reason":"Kısa Türkçe açıklama"}]${needTitles ? ',"suggestedTitles":["Başlık 1","Başlık 2"]' : ''}}`
 
   const TIMEOUT_MS = 25_000
   const aiP = getAiClient().models.generateContent({
@@ -131,9 +134,26 @@ Sadece JSON array döndür:
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error('ai_timeout')), TIMEOUT_MS)),
   ])
   const text = (response as Awaited<typeof aiP>).text ?? ''
-  const match = text.match(/\[[\s\S]*\]/)
-  if (!match) throw new Error('no_json')
-  return JSON.parse(match[0]) as AiRec[]
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    const parsed = JSON.parse(jsonMatch[0]) as { recs?: AiRec[]; suggestedTitles?: string[] }
+    return { recs: parsed.recs ?? [], suggestedTitles: parsed.suggestedTitles ?? [] }
+  }
+  // Fallback: old array-only format
+  const arrMatch = text.match(/\[[\s\S]*\]/)
+  if (!arrMatch) throw new Error('no_json')
+  return { recs: JSON.parse(arrMatch[0]) as AiRec[], suggestedTitles: [] }
+}
+
+function templateTitles(topic: string): string[] {
+  const t = topic.replace(/[?!.,]/g, '').trim()
+  return [
+    `${t}: Kapsamlı Rehber`,
+    `${t} Hakkında Bilinmesi Gerekenler`,
+    `${t} için Pratik İpuçları`,
+    `${t}: Sık Sorulan Sorular`,
+    `${t} — Adım Adım Kılavuz`,
+  ]
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -187,30 +207,41 @@ export async function POST(req: NextRequest) {
   let finalResults = fallbackResults
   let aiUsed = false
 
+  let suggestedTitles: string[] = []
+
   if (candidates.length > 0) {
     try {
-      const aiRecs = await aiScore(title, description, candidates)
+      const localMax = fallbackResults.reduce((m, r) => Math.max(m, r.score), 0)
+      const needTitles = localMax < 60
+      const { recs: aiRecs, suggestedTitles: aiTitles } = await aiScore(title, description, candidates, needTitles)
       const enriched = aiRecs
         .filter(r => postMap[r.id] && r.score >= 35)
-        .map(r => {
-          const scored_post = scored.find(p => p.id === r.id)
-          return {
-            ...postMap[r.id],
-            score: r.score,
-            reason: r.reason,
-            matchedTerms: scored_post?.matchedTerms ?? [],
-            aiUsedForThis: true,
-          }
-        })
+        .map(r => ({
+          ...postMap[r.id],
+          score: r.score,
+          reason: r.reason,
+          matchedTerms: scored.find(p => p.id === r.id)?.matchedTerms ?? [],
+          aiUsedForThis: true,
+        }))
         .sort((a, b) => b.score - a.score)
       if (enriched.length >= 1) { finalResults = enriched.slice(0, 5); aiUsed = true }
+      if (aiTitles.length) suggestedTitles = aiTitles
+      // If AI ran but still no 60+ result, ensure we have title suggestions
+      const maxScore = finalResults.reduce((m, r) => Math.max(m, r.score), 0)
+      if (maxScore < 60 && !suggestedTitles.length) suggestedTitles = templateTitles(title)
     } catch (e) {
       console.warn('[blog-recommend] AI fallback:', e instanceof Error ? e.message : e)
     }
   }
 
+  // Local fallback title suggestions (no AI)
+  if (!aiUsed && fallbackResults.reduce((m, r) => Math.max(m, r.score), 0) < 60) {
+    suggestedTitles = templateTitles(title)
+  }
+
   return NextResponse.json({
     recommendations: finalResults,
+    suggestedTitles,
     aiUsed,
     totalBlogCount: posts.length,
     matchedCount: candidates.length,
