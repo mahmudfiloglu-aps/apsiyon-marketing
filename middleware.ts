@@ -5,7 +5,7 @@ const secret = new TextEncoder().encode(
   process.env.JWT_SECRET ?? 'change-me-in-production'
 )
 
-const PUBLIC = ['/sign-in', '/sign-up', '/api/auth']
+const PUBLIC = ['/sign-in', '/sign-up', '/forgot-password', '/reset-password', '/api/auth']
 
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
@@ -30,6 +30,6 @@ export default async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    '/((?!_next|[^?]*\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
   ],
 }
