@@ -7,8 +7,8 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'ApsiyonLead',
-  description: "Uygun Bulunmadı etiketli lead'leri AI ile yeniden değerlendirin",
+  title: 'Apsiyon Marketing Automation Center',
+  description: 'Apsiyon Marketing Automation Center — Performance, Content & Social Media araçları',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
