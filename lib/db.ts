@@ -22,7 +22,6 @@ export async function createUsersTable() {
     )
   `
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL DEFAULT 'viewer'`.catch(() => {})
-  // Ensure marketing@apsiyon.com is super_admin
   await sql`UPDATE users SET role = 'super_admin' WHERE email = 'marketing@apsiyon.com' AND role = 'viewer'`.catch(() => {})
 }
 
@@ -63,6 +62,46 @@ export async function setSuperAdmin(email: string) {
   await sql`UPDATE users SET role = 'super_admin' WHERE email = ${email}`
 }
 
+// ── Password Reset Tokens ─────────────────────────────
+
+export async function createPasswordResetTokensTable() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token VARCHAR(255) UNIQUE NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `
+}
+
+export async function createResetToken(userId: string, token: string) {
+  const sql = getDb()
+  await sql`DELETE FROM password_reset_tokens WHERE user_id = ${userId}`
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+  await sql`
+    INSERT INTO password_reset_tokens (user_id, token, expires_at)
+    VALUES (${userId}, ${token}, ${expiresAt.toISOString()})
+  `
+}
+
+export async function getResetToken(token: string) {
+  const sql = getDb()
+  const result = await sql`
+    SELECT * FROM password_reset_tokens
+    WHERE token = ${token} AND expires_at > NOW() AND used = false
+  `
+  return result[0] ?? null
+}
+
+export async function markResetTokenUsed(token: string) {
+  const sql = getDb()
+  await sql`UPDATE password_reset_tokens SET used = true WHERE token = ${token}`
+}
+
 // ── Analyses ───────────────────────────────────────────
 
 export async function createAnalysesTable() {
@@ -97,7 +136,7 @@ export async function saveAnalysis(
 }
 
 export async function listAnalyses(userId: string) {
-  const sql = getDb()
+  const sql = getDb()  
   const result = await sql`
     SELECT id, file_name, filtered_count, total_count, created_at
     FROM analyses
@@ -340,7 +379,6 @@ export async function getCompanyHistory(
     ORDER BY a.created_at DESC
     LIMIT 200
   `
-  // Group by company name
   const map: Record<string, { analysisId: string; fileName: string; status: string; date: string }[]> = {}
   for (const row of rows) {
     const name = row.company_name as string
@@ -434,7 +472,6 @@ export async function getModulePermissions(userId: string): Promise<Record<strin
   const rows = await sql`SELECT module, is_enabled FROM module_permissions WHERE user_id = ${userId}`
   const map: Record<string, boolean> = {}
   for (const r of rows) map[r.module as string] = r.is_enabled as boolean
-  // default to true for missing modules
   for (const m of ALL_MODULES) {
     if (!(m in map)) map[m] = true
   }
@@ -574,7 +611,6 @@ export async function deleteReportProject(id: string, userId: string) {
 
 export async function getReportProjectFiles(projectId: string, userId: string) {
   const sql = getDb()
-  // Verify ownership
   const proj = await sql`SELECT id FROM report_projects WHERE id = ${projectId} AND user_id = ${userId}`
   if (!proj.length) return []
   return sql`SELECT id, file_type, is_previous, file_name, data, created_at FROM report_files WHERE project_id = ${projectId}`
