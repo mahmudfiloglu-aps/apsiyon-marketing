@@ -53,6 +53,11 @@ export async function updateUserRole(userId: string, role: string) {
   await sql`UPDATE users SET role = ${role} WHERE id = ${userId}`
 }
 
+export async function updateUserPassword(userId: string, passwordHash: string) {
+  const sql = getDb()
+  await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${userId}`
+}
+
 export async function setSuperAdmin(email: string) {
   const sql = getDb()
   await sql`UPDATE users SET role = 'super_admin' WHERE email = ${email}`
