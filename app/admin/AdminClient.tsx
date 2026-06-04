@@ -33,13 +33,22 @@ interface Props {
   currentUserRole: string
 }
 
+interface PasswordModal {
+  userId: string
+  userName: string
+}
+
 export default function AdminClient({ currentUserRole }: Props) {
   const [users, setUsers] = useState<UserRow[]>([])
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
+  const [msgType, setMsgType] = useState<'success' | 'error'>('success')
   const [sitemapUrl, setSitemapUrl] = useState('')
   const [sitemapSaving, setSitemapSaving] = useState(false)
+  const [pwModal, setPwModal] = useState<PasswordModal | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [pwSaving, setPwSaving] = useState(false)
 
   const load = useCallback(async () => {
     const [uRes, pRes, sRes] = await Promise.all([
@@ -54,6 +63,11 @@ export default function AdminClient({ currentUserRole }: Props) {
 
   useEffect(() => { load() }, [load])
 
+  const flash = (text: string, type: 'success' | 'error' = 'success') => {
+    setMsg(text); setMsgType(type)
+    setTimeout(() => setMsg(''), 3000)
+  }
+
   const saveSitemapUrl = async () => {
     setSitemapSaving(true)
     const res = await fetch('/api/blog-settings', {
@@ -61,9 +75,8 @@ export default function AdminClient({ currentUserRole }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sitemapUrl }),
     })
-    if (res.ok) setMsg('Sitemap URL kaydedildi')
+    if (res.ok) flash('Sitemap URL kaydedildi')
     setSitemapSaving(false)
-    setTimeout(() => setMsg(''), 3000)
   }
 
   const getEffectivePerm = (userId: string, module: string) => {
@@ -81,10 +94,9 @@ export default function AdminClient({ currentUserRole }: Props) {
     })
     if (res.ok) {
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
-      setMsg('Rol güncellendi')
+      flash('Rol güncellendi')
     }
     setSaving(null)
-    setTimeout(() => setMsg(''), 2000)
   }
 
   const togglePerm = async (userId: string, module: string, current: boolean) => {
@@ -105,6 +117,26 @@ export default function AdminClient({ currentUserRole }: Props) {
     setSaving(null)
   }
 
+  const submitPasswordReset = async () => {
+    if (!pwModal) return
+    if (newPassword.length < 6) { flash('Şifre en az 6 karakter olmalı', 'error'); return }
+    setPwSaving(true)
+    const res = await fetch('/api/admin/users', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: pwModal.userId, password: newPassword }),
+    })
+    if (res.ok) {
+      flash(`${pwModal.userName} şifresi güncellendi`)
+      setPwModal(null)
+      setNewPassword('')
+    } else {
+      const data = await res.json()
+      flash(data.error || 'Hata oluştu', 'error')
+    }
+    setPwSaving(false)
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-6">
@@ -113,7 +145,11 @@ export default function AdminClient({ currentUserRole }: Props) {
       </div>
 
       {msg && (
-        <div className="mb-4 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-2">
+        <div className={`mb-4 border text-sm rounded-lg px-4 py-2 ${
+          msgType === 'error'
+            ? 'bg-red-50 border-red-200 text-red-700'
+            : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
           {msg}
         </div>
       )}
@@ -151,6 +187,11 @@ export default function AdminClient({ currentUserRole }: Props) {
                   <span className="text-xs">{m.label}</span>
                 </th>
               ))}
+              {currentUserRole === 'super_admin' && (
+                <th className="px-4 py-3 font-semibold text-slate-600 text-center whitespace-nowrap">
+                  <span className="text-xs">Şifre</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -214,11 +255,21 @@ export default function AdminClient({ currentUserRole }: Props) {
                     </td>
                   )
                 })}
+                {currentUserRole === 'super_admin' && (
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => { setPwModal({ userId: user.id, userName: user.name }); setNewPassword('') }}
+                      className="text-xs text-slate-400 hover:text-orange-600 border border-slate-200 hover:border-orange-300 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      Yenile
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan={2 + MODULES.length} className="px-4 py-8 text-center text-slate-400 text-sm">
+                <td colSpan={2 + MODULES.length + (currentUserRole === 'super_admin' ? 1 : 0)} className="px-4 py-8 text-center text-slate-400 text-sm">
                   Kullanıcı bulunamadı
                 </td>
               </tr>
@@ -226,6 +277,45 @@ export default function AdminClient({ currentUserRole }: Props) {
           </tbody>
         </table>
       </div>
+
+      {/* Password reset modal */}
+      {pwModal && (
+        <div
+          className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+          onClick={(e) => { if (e.target === e.currentTarget) { setPwModal(null); setNewPassword('') } }}
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+            <h2 className="text-base font-bold text-slate-900 mb-1">Şifre Yenile</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              <span className="font-medium text-slate-700">{pwModal.userName}</span> için yeni şifre belirle.
+            </p>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitPasswordReset() }}
+              placeholder="Yeni şifre (en az 6 karakter)"
+              autoFocus
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 mb-4 focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setPwModal(null); setNewPassword('') }}
+                className="text-sm text-slate-500 hover:text-slate-700 px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                onClick={submitPasswordReset}
+                disabled={pwSaving || newPassword.length < 6}
+                className="text-sm font-medium bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                {pwSaving ? 'Kaydediliyor…' : 'Kaydet'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
