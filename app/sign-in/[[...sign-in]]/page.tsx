@@ -39,7 +39,7 @@ export default function SignInPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 w-full max-w-sm">
         <div className="flex justify-center mb-6">
-          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
+          <div className="w-12 h-12 bg-[#00A5DF] rounded-xl flex items-center justify-center">
             <span className="text-white font-bold text-xl">A</span>
           </div>
         </div>
@@ -58,7 +58,7 @@ export default function SignInPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#00A5DF]"
               placeholder="ornek@apsiyon.com"
             />
           </div>
@@ -71,7 +71,7 @@ export default function SignInPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#00A5DF]"
               placeholder="••••••"
             />
           </div>
@@ -82,10 +82,16 @@ export default function SignInPage() {
             </p>
           )}
 
+          <div className="flex justify-end">
+            <Link href="/forgot-password" className="text-xs text-[#00A5DF] hover:underline">
+              Şifremi unuttum
+            </Link>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-sm"
+            className="w-full bg-[#00A5DF] text-white py-3 rounded-xl font-medium hover:bg-[#0090c4] transition-colors disabled:opacity-50 shadow-sm"
           >
             {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
           </button>
@@ -93,7 +99,7 @@ export default function SignInPage() {
 
         <p className="text-center text-sm text-gray-500 mt-6">
           Hesabın yok mu?{' '}
-          <Link href="/sign-up" className="text-blue-600 hover:underline font-medium">
+          <Link href="/sign-up" className="text-[#00A5DF] hover:underline font-medium">
             Kayıt Ol
           </Link>
         </p>

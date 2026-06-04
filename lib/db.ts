@@ -58,6 +58,51 @@ export async function setSuperAdmin(email: string) {
   await sql`UPDATE users SET role = 'super_admin' WHERE email = ${email}`
 }
 
+// ── Password Reset Tokens ─────────────────────────────
+
+export async function createPasswordResetTokensTable() {
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token VARCHAR(255) UNIQUE NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `
+}
+
+export async function createResetToken(userId: string, token: string) {
+  const sql = getDb()
+  await sql`DELETE FROM password_reset_tokens WHERE user_id = ${userId}`
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+  await sql`
+    INSERT INTO password_reset_tokens (user_id, token, expires_at)
+    VALUES (${userId}, ${token}, ${expiresAt.toISOString()})
+  `
+}
+
+export async function getResetToken(token: string) {
+  const sql = getDb()
+  const result = await sql`
+    SELECT * FROM password_reset_tokens
+    WHERE token = ${token} AND expires_at > NOW() AND used = false
+  `
+  return result[0] ?? null
+}
+
+export async function markResetTokenUsed(token: string) {
+  const sql = getDb()
+  await sql`UPDATE password_reset_tokens SET used = true WHERE token = ${token}`
+}
+
+export async function updateUserPassword(userId: string, passwordHash: string) {
+  const sql = getDb()
+  await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${userId}`
+}
+
 // ── Analyses ───────────────────────────────────────────
 
 export async function createAnalysesTable() {

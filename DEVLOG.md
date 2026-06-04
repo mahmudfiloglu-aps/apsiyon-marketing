@@ -13,6 +13,14 @@
 
 ---
 
+## 2026-06-04 — Şifremi Unuttum / Şifre Sıfırlama akışı
+
+**Dosyalar:** `lib/db.ts`, `app/sign-in/[[...sign-in]]/page.tsx`, `app/forgot-password/page.tsx`, `app/reset-password/page.tsx`, `app/api/auth/forgot-password/route.ts`, `app/api/auth/reset-password/route.ts`  
+**Değişiklik:** Şifre sıfırlama akışı eklendi. `password_reset_tokens` tablosu DB'ye eklendi. Kullanıcı e-postasını girince 1 saatlik token üretilip Resend API ile sıfırlama maili gönderiliyor. Giriş sayfasına "Şifremi unuttum" linki eklendi.  
+**Dikkat:** `RESEND_API_KEY` env değişkeni Vercel'e eklenmelidir. `RESEND_FROM_EMAIL` opsiyoneldir (varsayılan: `noreply@apsiyon.com`) — bu adresin Resend'de domain doğrulaması yapılmış olması gerekir. Geliştirmede `NEXT_PUBLIC_APP_URL` yoksa `host` header'ından URL türetilir.
+
+---
+
 ## 2026-06-04 — Sidebar: collapsible sections + kompakt boyutlar
 
 **Dosyalar:** `components/Sidebar.tsx`  
