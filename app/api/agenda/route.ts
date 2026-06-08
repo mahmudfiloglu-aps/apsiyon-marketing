@@ -58,21 +58,28 @@ async function fetchNews(): Promise<RSSItem[]> {
   await Promise.allSettled(
     queries.map(async (q) => {
       const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=tr&gl=TR&ceid=TR:tr`
-      const res = await fetch(url, {
-        next: { revalidate: 0 },
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-        },
-      })
-      if (!res.ok) return
-      const xml = await res.text()
-      const items = parseRSS(xml)
-      for (const item of items) {
-        if (!seen.has(item.title)) {
-          seen.add(item.title)
-          results.push(item)
+      try {
+        const res = await fetch(url, {
+          next: { revalidate: 0 },
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+          },
+        })
+        if (!res.ok) {
+          console.error(`agenda RSS fetch failed for "${q}": HTTP ${res.status}`)
+          return
         }
+        const xml = await res.text()
+        const items = parseRSS(xml)
+        for (const item of items) {
+          if (!seen.has(item.title)) {
+            seen.add(item.title)
+            results.push(item)
+          }
+        }
+      } catch (err) {
+        console.error(`agenda RSS fetch threw for "${q}":`, err)
       }
     })
   )
