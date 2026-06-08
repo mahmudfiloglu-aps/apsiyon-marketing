@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: { temperature: 0.4 },
       }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 25000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 50000)),
     ])
 
     const text = result.candidates?.[0]?.content?.parts?.[0]?.text || ''
