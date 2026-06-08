@@ -121,7 +121,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'AI yanıtı ayrıştırılamadı' }, { status: 500 })
     }
 
-    const suggestions: AgendaSuggestion[] = JSON.parse(jsonMatch[0])
+    let suggestions: AgendaSuggestion[]
+    try {
+      suggestions = JSON.parse(jsonMatch[0])
+    } catch (parseErr) {
+      console.error('agenda JSON.parse error:', parseErr, 'raw:', jsonMatch[0].slice(0, 500))
+      return NextResponse.json({ error: 'AI yanıtı ayrıştırılamadı', detail: parseErr instanceof Error ? parseErr.message : String(parseErr) }, { status: 500 })
+    }
 
     // Attach URLs from fetched news
     for (const s of suggestions) {
@@ -135,6 +141,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ suggestions, fetchedAt: new Date().toISOString() })
   } catch (err) {
     console.error('agenda error:', err)
-    return NextResponse.json({ error: 'Bir hata oluştu' }, { status: 500 })
+    const detail = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: 'Bir hata oluştu', detail }, { status: 500 })
   }
 }

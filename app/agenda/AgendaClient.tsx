@@ -49,7 +49,7 @@ export default function AgendaClient() {
     try {
       const res = await fetch('/api/agenda')
       const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Hata'); return }
+      if (!res.ok) { setError(data.detail ? `${data.error}: ${data.detail}` : (data.error || 'Hata')); return }
       setSuggestions(data.suggestions)
       setFetchedAt(data.fetchedAt)
       const now = Date.now()
