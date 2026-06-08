@@ -40,6 +40,7 @@ const PERF_ITEMS: NavItem[] = [
 ]
 
 const CONTENT_ITEMS: NavItem[] = [
+  { href: '/agenda',     label: 'Gündem & İçerik',   icon: '📰', permKey: 'agenda' },
   { href: '/blog-tools', label: 'Blog Bulucu',       icon: '🔍', permKey: 'blog_tools' },
   { href: '/keywords',   label: 'Negatif Kelimeler', icon: '🔑', permKey: 'keywords' },
 ]

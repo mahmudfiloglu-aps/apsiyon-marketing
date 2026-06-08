@@ -450,6 +450,8 @@ export const ALL_MODULES = [
   'analytics',
   'keywords',
   'ad_reports',
+  'blog_tools',
+  'agenda',
   'settings',
 ] as const
 export type Module = typeof ALL_MODULES[number]

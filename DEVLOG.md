@@ -13,6 +13,14 @@
 
 ---
 
+## 2026-06-08 — Gündem & İçerik Önerileri modülü
+
+**Dosyalar:** `app/api/agenda/route.ts`, `app/agenda/page.tsx`, `app/agenda/AgendaClient.tsx`, `components/Sidebar.tsx`, `lib/db.ts`  
+**Değişiklik:** Google News RSS'ten emlak/konut/site yönetimi haberleri çekiliyor, Gemini ile Apsiyon odaklı blog + LinkedIn içerik önerileri üretiliyor. Öncelik (Yüksek/Orta/Düşük) ve içerik türü (Blog/Sosyal) etiketleri gösteriliyor. 6 saatlik localStorage cache. Sidebar Content & SEO'ya eklendi. ALL_MODULES'e 'agenda' ve 'blog_tools' eklendi.  
+**Dikkat:** 3 farklı RSS sorgusu paralel çekilir, ilk 20 haber Gemini'ye gönderilir. Google News RSS IP bazlı rate-limit uygulayabilir; Vercel serverless ortamında sorun çıkarsa `NEXT_PUBLIC_APP_URL` env'ini doğru set etmek gerekir.
+
+---
+
 ## 2026-06-04 — Şifremi Unuttum / Şifre Sıfırlama akışı
 
 **Dosyalar:** `lib/db.ts`, `app/sign-in/[[...sign-in]]/page.tsx`, `app/forgot-password/page.tsx`, `app/reset-password/page.tsx`, `app/api/auth/forgot-password/route.ts`, `app/api/auth/reset-password/route.ts`  

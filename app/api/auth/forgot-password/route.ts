@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
             <p style="color:#334155;">Merhaba ${user.name},</p>
             <p style="color:#334155;">Şifrenizi sıfırlamak için aşağıdaki butona tıklayın. Bu bağlantı <strong>1 saat</strong> geçerlidir.</p>
             <a href="${resetUrl}" style="display:inline-block;margin:24px 0;padding:12px 28px;background:#00A5DF;color:white;text-decoration:none;border-radius:8px;font-weight:600;">Şifremi Sıfırla</a>
-            <p style="color:#94a3b8;font-size:13px;">Bu isteği siz yapmadıysanız bu e-postasını görmezden gelebilirsiniz.</p>
+            <p style="color:#94a3b8;font-size:13px;">Bu isteği siz yapmadıysanız bu e-postayı görmezden gelebilirsiniz.</p>
           </div>
         `,
       }),
